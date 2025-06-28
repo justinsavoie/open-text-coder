@@ -1,0 +1,12 @@
+{
+  "file_path": "data-cps21.csv",
+  "text_column": "cps21_imp_iss",
+  "id_column": "cps21_ResponseId",
+  "multiclass": false,
+  "n_samples": 10,
+  "question_context": "What is the most important issue to you personally in this federal\nelection? (answer in English or French)",
+  "category_model": "cogito:14b",
+  "classifier_model": "gemma3n:latest",
+  "backend": "ollama",
+  "judge_model": "gemma3n:latest"
+}
