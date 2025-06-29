@@ -32,7 +32,12 @@ Original text: \"{text}\"
 Predicted category: \"{predicted_category}\"
 Available categories: {categories_str}
 
-Rate the classification quality (1-5) and explain whether you agree in one sentence."""
+Evaluate both the predicted category *and* the quality of the category scheme itself.
+- If the categories are vague, overlapping, or poorly defined, give a low score.
+- If the categories are meaningful and the prediction fits well, give a high score.
+
+Rate overall classification quality from 1 (very poor) to 5 (excellent) and explain in one sentence.
+"""
         
         result = self.classifier.send_chat([
             {"role": "system", "content": system_prompt},

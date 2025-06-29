@@ -1,13 +1,14 @@
 {
   "classification_runs": {
-    "20250628_142117_5be31aae": {
-      "run_id": "20250628_142117_5be31aae",
-      "timestamp": "2025-06-28T14:21:42.446288",
+    "20250628_235829_5849196a": {
+      "run_id": "20250628_235829_5849196a",
+      "timestamp": "2025-06-29T00:00:04.228344",
       "config": {
         "classifier_model": "gemma3n:latest",
-        "category_model": null,
+        "category_model": "gemma3n:latest",
         "judge_model": "gemma3n:latest",
-        "backend": "ollama",
+        "classifier_backend": "ollama",
+        "category_backend": "ollama",
         "multiclass": false,
         "n_samples": 100,
         "question_context": "",
@@ -17,36 +18,149 @@
         "id_column": "cps21_ResponseId"
       },
       "input_file": "data-cps21.csv",
-      "output_file": "runs/classification_20250628_142117_5be31aae/classified_20250628_142117_5be31aae.csv",
+      "output_file": "runs/classification_20250628_235829_5849196a/classified_20250628_235829_5849196a.csv",
       "categories": [
-        "Economy",
         "Climate Change",
-        "COVID-19 Impact",
+        "Healthcare",
+        "Economy/Jobs",
+        "Government/Leadership",
         "Housing Affordability",
-        "Social Welfare",
-        "Political Change",
-        "Debt",
-        "Environment",
-        "Uncertainty/Other"
+        "COVID-19",
+        "Social Issues/Values",
+        "Debt/Finance",
+        "Immigration",
+        "Foreign Policy",
+        "Education",
+        "Seniors Care",
+        "Indigenous Relations",
+        "Cost of Living",
+        "Political Reform",
+        "Don't Know/Uncertain"
       ],
       "metrics": {
-        "total_rows": 20,
-        "classified_rows": 20,
+        "total_rows": 100,
+        "classified_rows": 100,
         "multiclass": false,
-        "num_categories": 9,
+        "num_categories": 16,
         "category_distribution": {
-          "Economy": 7,
-          "Housing Affordability": 3,
-          "Debt": 2,
-          "Climate Change": 2,
-          "COVID-19 Impact": 2,
-          "Environment": 1,
-          "Uncertainty/Other": 1,
-          "Social Welfare": 1,
-          "Political Change": 1
+          "Climate Change": 14,
+          "Economy/Jobs": 13,
+          "Healthcare": 12,
+          "COVID-19": 11,
+          "Debt/Finance": 11,
+          "Government/Leadership": 10,
+          "Social Issues/Values": 8,
+          "Housing Affordability": 6,
+          "Don't Know/Uncertain": 3,
+          "Seniors Care": 3,
+          "Immigration": 2,
+          "Cost of Living": 2,
+          "Political Reform": 2,
+          "Indigenous Relations": 1,
+          "Foreign Policy": 1,
+          "Education": 1
+        }
+      }
+    },
+    "20250629_000327_7c7ab29f": {
+      "run_id": "20250629_000327_7c7ab29f",
+      "timestamp": "2025-06-29T00:04:23.803870",
+      "config": {
+        "classifier_model": "gpt-4.1",
+        "category_model": "gpt-4.1",
+        "judge_model": "gemma3n:latest",
+        "classifier_backend": "openai",
+        "category_backend": "openai",
+        "multiclass": false,
+        "n_samples": 100,
+        "question_context": "",
+        "validation_samples": null,
+        "file_path": "data-cps21.csv",
+        "text_column": "cps21_imp_iss",
+        "id_column": "cps21_ResponseId"
+      },
+      "input_file": "data-cps21.csv",
+      "output_file": "runs/classification_20250629_000327_7c7ab29f/classified_20250629_000327_7c7ab29f.csv",
+      "categories": [
+        "Economy and Jobs",
+        "Healthcare and Senior Care",
+        "Climate Change and Environment",
+        "COVID-19 and Pandemic Recovery",
+        "Housing and Affordability",
+        "Government Leadership and Accountability",
+        "National Unity and Canadian Values",
+        "Indigenous and Minority Rights",
+        "Taxes and Fiscal Responsibility",
+        "Electoral Reform",
+        "Education",
+        "Foreign Policy",
+        "Law and Order",
+        "Don't know or Uncertain"
+      ],
+      "metrics": {
+        "total_rows": 100,
+        "classified_rows": 100,
+        "multiclass": false,
+        "num_categories": 14,
+        "category_distribution": {
+          "Healthcare and Senior Care": 15,
+          "Climate Change and Environment": 15,
+          "COVID-19 and Pandemic Recovery": 13,
+          "Economy and Jobs": 12,
+          "Government Leadership and Accountability": 11,
+          "Taxes and Fiscal Responsibility": 11,
+          "Housing and Affordability": 7,
+          "National Unity and Canadian Values": 5,
+          "Don't know or Uncertain": 3,
+          "Indigenous and Minority Rights": 3,
+          "Electoral Reform": 2,
+          "Foreign Policy": 1,
+          "Education": 1,
+          "Law and Order": 1
         }
       }
     }
   },
-  "validation_runs": {}
+  "validation_runs": {
+    "20250629_000636_839f70ea": {
+      "validation_id": "20250629_000636_839f70ea",
+      "classification_run_id": "20250628_235829_5849196a",
+      "timestamp": "2025-06-29T00:06:36.932861",
+      "config": {
+        "backend": "openai",
+        "judge_model": "gpt-4.1"
+      },
+      "results_file": "runs/validation_20250629_000636_839f70ea/validation_20250629_000636_839f70ea.csv",
+      "metrics": {
+        "total_validated": 100,
+        "average_score": 4.58,
+        "score_distribution": {
+          "5": 76,
+          "3": 10,
+          "4": 10,
+          "2": 4
+        }
+      }
+    },
+    "20250629_000834_fe9a8074": {
+      "validation_id": "20250629_000834_fe9a8074",
+      "classification_run_id": "20250629_000327_7c7ab29f",
+      "timestamp": "2025-06-29T00:08:34.200969",
+      "config": {
+        "backend": "openai",
+        "judge_model": "gpt-4.1"
+      },
+      "results_file": "runs/validation_20250629_000834_fe9a8074/validation_20250629_000834_fe9a8074.csv",
+      "metrics": {
+        "total_validated": 100,
+        "average_score": 4.77,
+        "score_distribution": {
+          "5": 87,
+          "4": 6,
+          "3": 4,
+          "2": 3
+        }
+      }
+    }
+  }
 }

@@ -92,7 +92,8 @@ DEFAULT_CONFIG = {
     "classifier_model": "gemma3n:latest",
     "category_model": None,  # Will use classifier_model if not specified
     "judge_model": "gemma3n:latest",
-    "backend": "ollama",
+    "classifier_backend": "ollama",
+    "category_backend": None,  # falls back to classifier_backend
     "multiclass": False,
     "n_samples": 100,
     "question_context": "",
@@ -101,13 +102,12 @@ DEFAULT_CONFIG = {
 
 
 def get_config_with_defaults(config: Dict[str, Any]) -> Dict[str, Any]:
-    """
-    Apply default values to a configuration dictionary.
+    config = merge_configs(DEFAULT_CONFIG, config)
     
-    Args:
-        config: User-provided configuration
-        
-    Returns:
-        Configuration with defaults applied
-    """
-    return merge_configs(DEFAULT_CONFIG, config)
+    # For backward compatibility
+    if "classifier_backend" not in config:
+        config["classifier_backend"] = config["backend"]
+    if "category_backend" not in config:
+        config["category_backend"] = config["classifier_backend"]
+    
+    return config

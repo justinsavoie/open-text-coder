@@ -61,7 +61,7 @@ def classify_texts(
     storage = RunStorage(storage_dir)
     
     # Load data
-    df = pd.read_csv(config["file_path"])
+    df = pd.read_csv(config["file_path"],keep_default_na=False)
     
     # Parse categories from config
     categories = parse_categories(config)
@@ -69,7 +69,7 @@ def classify_texts(
     # Initialize classifier
     classifier = TextClassifier(
         config.get("classifier_model", "gemma3n:latest"),
-        config.get("backend", "ollama")
+        config.get("classifier_backend", config.get("backend", "ollama"))
     )
     
     # Run classification
@@ -81,7 +81,8 @@ def classify_texts(
         multiclass=config.get("multiclass", False),
         n_samples=config.get("n_samples", 100),
         question_context=config.get("question_context", ""),
-        category_model=config.get("category_model")
+        category_model=config.get("category_model"),
+        category_backend=config.get("category_backend", config.get("classifier_backend", config.get("backend", "ollama")))
     )
     
     # Create run record

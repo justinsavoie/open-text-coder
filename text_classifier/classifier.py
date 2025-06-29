@@ -16,18 +16,16 @@ except ImportError:
 
 
 class TextClassifier:
-    """Handles text classification operations"""
-    
     def __init__(self, model_name: str, backend: str = "ollama"):
         self.model_name = model_name
         self.backend = backend
-        
+
         if backend == "openai":
             if openai is None:
                 raise ImportError("OpenAI package not installed. Run: pip install openai")
-            openai.api_key = os.getenv("OPENAI_API_KEY")
-            if not openai.api_key:
+            if not os.getenv("OPENAI_API_KEY"):
                 raise ValueError("OPENAI_API_KEY environment variable not set")
+            self.client = openai.OpenAI()  # <-- initialize once here
         elif backend == "ollama":
             if ollama is None:
                 raise ImportError("Ollama package not installed. Run: pip install ollama")
@@ -35,7 +33,7 @@ class TextClassifier:
     def send_chat(self, messages: List[Dict[str, Any]]) -> Dict[str, Any]:
         """Send chat request to LLM"""
         if self.backend == "openai":
-            resp = openai.ChatCompletion.create(model=self.model_name, messages=messages)
+            resp = self.client.chat.completions.create(model=self.model_name, messages=messages)
             content = resp.choices[0].message.content
             return {"message": {"content": content}}
         else:
@@ -107,14 +105,15 @@ class TextClassifier:
         multiclass: bool = False,
         n_samples: int = 100,
         question_context: str = "",
-        category_model: Optional[str] = None
+        category_model: Optional[str] = None,
+        category_backend: Optional[str] = None  # NEW
     ) -> Tuple[pd.DataFrame, List[str], Dict[str, Any]]:
         """Run full classification pipeline"""
         # Generate categories if needed
         if categories is None:
             cat_classifier = TextClassifier(
-                category_model or self.model_name, 
-                self.backend
+                model_name=category_model or self.model_name,
+                backend=category_backend or self.backend
             )
             categories = cat_classifier.generate_categories(
                 df, text_column, n_samples, question_context

@@ -5,8 +5,9 @@
   "multiclass": false,
   "n_samples": 10,
   "question_context": "What is the most important issue to you personally in this federal\nelection? (answer in English or French)",
-  "category_model": "cogito:14b",
-  "classifier_model": "gemma3n:latest",
-  "backend": "ollama",
+  "classifier_model": "gpt-4.1",
+  "classifier_backend": "openai",
+  "category_model": "gemma3n:latest",
+  "category_backend": "ollama",
   "judge_model": "gemma3n:latest"
 }
