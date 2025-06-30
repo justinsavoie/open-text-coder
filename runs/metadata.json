@@ -1,8 +1,8 @@
 {
   "classification_runs": {
-    "20250628_235829_5849196a": {
-      "run_id": "20250628_235829_5849196a",
-      "timestamp": "2025-06-29T00:00:04.228344",
+    "20250629_212830_77e4d36f": {
+      "run_id": "20250629_212830_77e4d36f",
+      "timestamp": "2025-06-29T21:33:16.139424",
       "config": {
         "classifier_model": "gemma3n:latest",
         "category_model": "gemma3n:latest",
@@ -10,61 +10,64 @@
         "classifier_backend": "ollama",
         "category_backend": "ollama",
         "multiclass": false,
-        "n_samples": 100,
-        "question_context": "",
+        "n_samples": 200,
+        "question_context": "What is the most important issue to you personally in this federal election? (answer in English or French)",
         "validation_samples": null,
         "file_path": "data-cps21.csv",
         "text_column": "cps21_imp_iss",
         "id_column": "cps21_ResponseId"
       },
       "input_file": "data-cps21.csv",
-      "output_file": "runs/classification_20250628_235829_5849196a/classified_20250628_235829_5849196a.csv",
+      "output_file": "runs/classification_20250629_212830_77e4d36f/classified_20250629_212830_77e4d36f.csv",
       "categories": [
-        "Climate Change",
         "Healthcare",
-        "Economy/Jobs",
-        "Government/Leadership",
-        "Housing Affordability",
+        "Economy",
+        "Climate Change",
         "COVID-19",
-        "Social Issues/Values",
-        "Debt/Finance",
+        "Housing",
+        "Government Accountability",
+        "Environment",
         "Immigration",
-        "Foreign Policy",
-        "Education",
         "Seniors Care",
-        "Indigenous Relations",
-        "Cost of Living",
-        "Political Reform",
-        "Don't Know/Uncertain"
+        "Indigenous Issues",
+        "Fiscal Responsibility",
+        "Political Leadership",
+        "Election Reform",
+        "Other/Uncertain"
       ],
       "metrics": {
-        "total_rows": 100,
-        "classified_rows": 100,
+        "total_rows": 200,
+        "classified_rows": 200,
         "multiclass": false,
-        "num_categories": 16,
+        "num_categories": 14,
         "category_distribution": {
-          "Climate Change": 14,
-          "Economy/Jobs": 13,
-          "Healthcare": 12,
-          "COVID-19": 11,
-          "Debt/Finance": 11,
-          "Government/Leadership": 10,
-          "Social Issues/Values": 8,
-          "Housing Affordability": 6,
-          "Don't Know/Uncertain": 3,
-          "Seniors Care": 3,
-          "Immigration": 2,
-          "Cost of Living": 2,
-          "Political Reform": 2,
-          "Indigenous Relations": 1,
+          "Economy": 27,
+          "COVID-19": 26,
+          "Healthcare": 25,
+          "Climate Change": 20,
+          "Fiscal Responsibility": 15,
+          "Environment": 15,
+          "Political Leadership": 14,
+          "Government Accountability": 12,
+          "Other/Uncertain": 12,
+          "Housing": 8,
+          "Seniors Care": 7,
+          "Immigration": 6,
+          "Indigenous Issues": 3,
+          "Election Reform": 3,
+          "Immigration, Economy, COVID-19": 1,
           "Foreign Policy": 1,
-          "Education": 1
+          "Education": 1,
+          "National Defense": 1,
+          "Senior Care": 1,
+          "Indigenous Issues, Housing": 1,
+          "Housing & climate change": 1
         }
       }
     },
-    "20250629_000327_7c7ab29f": {
-      "run_id": "20250629_000327_7c7ab29f",
-      "timestamp": "2025-06-29T00:04:23.803870",
+    "20250629_213316_08af6d1b": {
+      "run_id": "20250629_213316_08af6d1b",
+      "timestamp": "2025-06-29T21:35:16.195675",
       "config": {
         "classifier_model": "gpt-4.1",
         "category_model": "gpt-4.1",
@@ -72,93 +75,191 @@
         "classifier_backend": "openai",
         "category_backend": "openai",
         "multiclass": false,
-        "n_samples": 100,
-        "question_context": "",
+        "n_samples": 200,
+        "question_context": "What is the most important issue to you personally in this federal election? (answer in English or French)",
         "validation_samples": null,
         "file_path": "data-cps21.csv",
         "text_column": "cps21_imp_iss",
         "id_column": "cps21_ResponseId"
       },
       "input_file": "data-cps21.csv",
-      "output_file": "runs/classification_20250629_000327_7c7ab29f/classified_20250629_000327_7c7ab29f.csv",
+      "output_file": "runs/classification_20250629_213316_08af6d1b/classified_20250629_213316_08af6d1b.csv",
       "categories": [
-        "Economy and Jobs",
-        "Healthcare and Senior Care",
         "Climate Change and Environment",
-        "COVID-19 and Pandemic Recovery",
-        "Housing and Affordability",
-        "Government Leadership and Accountability",
-        "National Unity and Canadian Values",
-        "Indigenous and Minority Rights",
-        "Taxes and Fiscal Responsibility",
-        "Electoral Reform",
-        "Education",
-        "Foreign Policy",
+        "Healthcare and Senior Care",
+        "Economy and Jobs",
+        "COVID-19 Pandemic and Recovery",
+        "Housing Affordability",
+        "Leadership and Government Accountability",
+        "Deficit and Fiscal Responsibility",
+        "Electoral and Democratic Reform",
+        "Indigenous and Minority Issues",
+        "National Unity and Federalism",
+        "Immigration",
         "Law and Order",
+        "Foreign Policy and National Defense",
         "Don't know or Uncertain"
       ],
       "metrics": {
-        "total_rows": 100,
-        "classified_rows": 100,
+        "total_rows": 200,
+        "classified_rows": 200,
         "multiclass": false,
         "num_categories": 14,
         "category_distribution": {
-          "Healthcare and Senior Care": 15,
-          "Climate Change and Environment": 15,
-          "COVID-19 and Pandemic Recovery": 13,
-          "Economy and Jobs": 12,
-          "Government Leadership and Accountability": 11,
-          "Taxes and Fiscal Responsibility": 11,
-          "Housing and Affordability": 7,
-          "National Unity and Canadian Values": 5,
-          "Don't know or Uncertain": 3,
-          "Indigenous and Minority Rights": 3,
-          "Electoral Reform": 2,
-          "Foreign Policy": 1,
-          "Education": 1,
-          "Law and Order": 1
+          "Climate Change and Environment": 35,
+          "Healthcare and Senior Care": 31,
+          "COVID-19 Pandemic and Recovery": 29,
+          "Economy and Jobs": 28,
+          "Leadership and Government Accountability": 22,
+          "Deficit and Fiscal Responsibility": 14,
+          "Don't know or Uncertain": 10,
+          "Housing Affordability": 10,
+          "Indigenous and Minority Issues": 8,
+          "Electoral and Democratic Reform": 4,
+          "National Unity and Federalism": 3,
+          "Foreign Policy and National Defense": 2,
+          "Law and Order": 2,
+          "Immigration": 2
+        }
+      }
+    },
+    "20250629_213516_7747a212": {
+      "run_id": "20250629_213516_7747a212",
+      "timestamp": "2025-06-29T21:44:35.389441",
+      "config": {
+        "classifier_model": "cogito:14b",
+        "category_model": "cogito:14b",
+        "judge_model": "gemma3n:latest",
+        "classifier_backend": "ollama",
+        "category_backend": "ollama",
+        "multiclass": false,
+        "n_samples": 200,
+        "question_context": "What is the most important issue to you personally in this federal election? (answer in English or French)",
+        "validation_samples": null,
+        "file_path": "data-cps21.csv",
+        "text_column": "cps21_imp_iss",
+        "id_column": "cps21_ResponseId"
+      },
+      "input_file": "data-cps21.csv",
+      "output_file": "runs/classification_20250629_213516_7747a212/classified_20250629_213516_7747a212.csv",
+      "categories": [
+        "Climate Change and Environment",
+        "Economy and Jobs",
+        "Healthcare and Seniors Care",
+        "Immigration and Indigenous Relations",
+        "COVID-19 Response",
+        "Housing Affordability",
+        "Leadership (Trudeau)",
+        "Government Accountability and Reform",
+        "Taxes and Budget Management",
+        "Foreign Policy",
+        "Don't Know/Uncertain"
+      ],
+      "metrics": {
+        "total_rows": 200,
+        "classified_rows": 200,
+        "multiclass": false,
+        "num_categories": 11,
+        "category_distribution": {
+          "Climate Change and Environment": 34,
+          "Healthcare and Seniors Care": 31,
+          "COVID-19 Response": 28,
+          "Economy and Jobs": 27,
+          "Don't Know/Uncertain": 19,
+          "Taxes and Budget Management": 15,
+          "Government Accountability and Reform": 14,
+          "Housing Affordability": 11,
+          "Leadership (Trudeau)": 9,
+          "Immigration and Indigenous Relations": 6,
+          "Indigenous Relations": 2,
+          "Foreign Policy": 2,
+          "Education\n\nNote: This is a direct response matching the given options since \"Education\" is one of the explicit categories in the list provided, even though it's not listed as an option in the original problem statement. However, if I had to choose strictly from the given options without considering education-related subtopics under other categories (e.g., Economy and Jobs), then this response would fall into the \"Don't Know/Uncertain\" category since education isn't directly listed among the main options.": 1,
+          "Leadership": 1
         }
       }
     }
   },
   "validation_runs": {
-    "20250629_000636_839f70ea": {
-      "validation_id": "20250629_000636_839f70ea",
-      "classification_run_id": "20250628_235829_5849196a",
-      "timestamp": "2025-06-29T00:06:36.932861",
+    "20250629_220931_e2ad7b47": {
+      "validation_id": "20250629_220931_e2ad7b47",
+      "classification_run_id": "20250629_212830_77e4d36f",
+      "timestamp": "2025-06-29T22:09:31.710242",
       "config": {
         "backend": "openai",
         "judge_model": "gpt-4.1"
       },
-      "results_file": "runs/validation_20250629_000636_839f70ea/validation_20250629_000636_839f70ea.csv",
+      "results_file": "runs/validation_20250629_220931_e2ad7b47/validation_20250629_220931_e2ad7b47.csv",
       "metrics": {
-        "total_validated": 100,
-        "average_score": 4.58,
+        "total_validated": 200,
+        "average_score": 4.585,
         "score_distribution": {
-          "5": 76,
-          "3": 10,
-          "4": 10,
-          "2": 4
+          "5": 158,
+          "4": 19,
+          "2": 16,
+          "3": 6,
+          "1": 1
         }
       }
     },
-    "20250629_000834_fe9a8074": {
-      "validation_id": "20250629_000834_fe9a8074",
-      "classification_run_id": "20250629_000327_7c7ab29f",
-      "timestamp": "2025-06-29T00:08:34.200969",
+    "20250629_221411_d42569c7": {
+      "validation_id": "20250629_221411_d42569c7",
+      "classification_run_id": "20250629_213316_08af6d1b",
+      "timestamp": "2025-06-29T22:14:11.496138",
       "config": {
         "backend": "openai",
         "judge_model": "gpt-4.1"
       },
-      "results_file": "runs/validation_20250629_000834_fe9a8074/validation_20250629_000834_fe9a8074.csv",
+      "results_file": "runs/validation_20250629_221411_d42569c7/validation_20250629_221411_d42569c7.csv",
       "metrics": {
-        "total_validated": 100,
-        "average_score": 4.77,
+        "total_validated": 200,
+        "average_score": 4.705,
         "score_distribution": {
-          "5": 87,
-          "4": 6,
-          "3": 4,
-          "2": 3
+          "5": 170,
+          "4": 12,
+          "2": 9,
+          "3": 8,
+          "1": 1
+        }
+      }
+    },
+    "20250629_221911_9e46a02d": {
+      "validation_id": "20250629_221911_9e46a02d",
+      "classification_run_id": "20250629_213516_7747a212",
+      "timestamp": "2025-06-29T22:19:11.226036",
+      "config": {
+        "backend": "openai",
+        "judge_model": "gpt-4.1"
+      },
+      "results_file": "runs/validation_20250629_221911_9e46a02d/validation_20250629_221911_9e46a02d.csv",
+      "metrics": {
+        "total_validated": 200,
+        "average_score": 4.61,
+        "score_distribution": {
+          "5": 157,
+          "4": 21,
+          "2": 13,
+          "3": 9
+        }
+      }
+    },
+    "20250629_231510_a5c72477": {
+      "validation_id": "20250629_231510_a5c72477",
+      "classification_run_id": "20250629_212830_77e4d36f",
+      "timestamp": "2025-06-29T23:15:10.384477",
+      "config": {
+        "backend": "ollama",
+        "judge_model": "cogito:14b"
+      },
+      "results_file": "runs/validation_20250629_231510_a5c72477/validation_20250629_231510_a5c72477.csv",
+      "metrics": {
+        "total_validated": 200,
+        "average_score": 3.605,
+        "score_distribution": {
+          "4": 103,
+          "3": 47,
+          "2": 26,
+          "5": 23,
+          "1": 1
         }
       }
     }

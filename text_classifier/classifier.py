@@ -32,12 +32,22 @@ class TextClassifier:
     
     def send_chat(self, messages: List[Dict[str, Any]]) -> Dict[str, Any]:
         """Send chat request to LLM"""
+        print("[CHATDEBUG] Messages:")
+        for msg in messages:
+            print(f"  - {msg['role']}: {msg['content']}")
+    
         if self.backend == "openai":
-            resp = self.client.chat.completions.create(model=self.model_name, messages=messages)
+            resp = self.client.chat.completions.create(
+                model=self.model_name,
+                messages=messages,
+            )
             content = resp.choices[0].message.content
+            print("[CHATDEBUG] Response:\n", content)
             return {"message": {"content": content}}
         else:
-            return ollama.chat(model=self.model_name, messages=messages)
+            tempz = ollama.chat(model=self.model_name, messages=messages)
+            print("[CHATDEBUG] Response:\n", tempz)
+            return tempz
     
     def generate_categories(
         self,
@@ -59,32 +69,34 @@ class TextClassifier:
             "that summarise the main themes. Include a Don't know or Uncertain category "
             "if appropriate. Return a comma-separated list only."
         )
-        
         reply = self.send_chat([{"role": "system", "content": prompt}])
         text = reply["message"]["content"].strip()
         if "\n" in text:
             text = text.split("\n")[-1]
         return [c.strip() for c in text.split(",") if c.strip()]
     
-    def classify_single(self, text: str, categories: List[str]) -> str:
+    def classify_single(self, text: str, categories: List[str], question_context: str = "") -> str:
         """Classify a single text"""
         prompt = (
-            "You are a survey response classifier. "
-            f"Choose the best category among: {', '.join(categories)}.\n\n"
-            f"Response:\n\"{text}\"\n\nReturn the category name only."
+            "You are a survey response classifier.\n"
+            f"Survey question: {question_context}\n\n"
+            f"Response:\n\"{text}\"\n\n"
+            f"Choose the best category among:\n{', '.join(categories)}\n\n"
+            "Return the category name only."
         )
         reply = self.send_chat([{"role": "system", "content": prompt}])
         return reply["message"]["content"].strip()
     
-    def classify_single_multiclass(self, text: str, categories: List[str]) -> Dict[str, str]:
+    def classify_single_multiclass(self, text: str, categories: List[str], question_context: str = "") -> Dict[str, str]:
         """Classify a single text into multiple categories"""
         category_list = "\n".join(f"{i+1}. {cat}" for i, cat in enumerate(categories))
         prompt = (
-            f"For the following response, determine if it belongs to each category. "
-            "Answer with a list of yes/no for each category in order.\n\n"
-            f"Categories:\n{category_list}\n\n"
+            f"You are a survey response classifier.\n"
+            f"Survey question: {question_context}\n\n"
             f"Response:\n\"{text}\"\n\n"
-            f"Reply with exactly {len(categories)} answers separated by commas (e.g., \"yes, no, yes, no\"):"
+            f"For each of the following categories, indicate if the response applies.\n\n"
+            f"Categories:\n{category_list}\n\n"
+            f"Reply with exactly {len(categories)} answers (\"yes\" or \"no\") separated by commas."
         )
         
         reply = self.send_chat([{"role": "system", "content": prompt}])
@@ -133,13 +145,13 @@ class TextClassifier:
                 record = {
                     id_column: row[id_column],
                     text_column: txt,
-                    **self.classify_single_multiclass(txt, categories)
+                    **self.classify_single_multiclass(txt, categories, question_context)
                 }
             else:
                 record = {
                     id_column: row[id_column],
                     text_column: txt,
-                    "category": self.classify_single(txt, categories)
+                    "category": self.classify_single(txt, categories, question_context)
                 }
             rows.append(record)
         

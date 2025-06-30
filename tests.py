@@ -13,6 +13,7 @@ base_config = {
     "category_model": "gemma3n:latest",
     "classifier_backend": "ollama",
     "category_backend": "ollama",
+    "question_context": "What is the most important issue to you personally in this federal election? (answer in English or French)"
 }
 
 # Classify with local model

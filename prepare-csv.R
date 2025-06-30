@@ -9,7 +9,7 @@ set.seed(232)
 
 df %>%
   select(cps21_ResponseId,cps21_imp_iss) %>%
-  sample_n(100) %>% View()
+  sample_n(200) %>% 
   write_csv("data-cps21.csv")
 
 #zz <- read.csv("~/Desktop/ACAN_ELECTION_FREENEXT_WHY_merged.csv")
