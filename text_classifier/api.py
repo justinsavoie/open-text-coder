@@ -8,7 +8,7 @@ from pathlib import Path
 from datetime import datetime
 import uuid
 import json
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, Optional, List, Union, Tuple  # Added Union and Tuple
 import pandas as pd
 
 from .models import ClassificationRun, ValidationRun
@@ -38,7 +38,8 @@ def classify_texts(
             - id_column: Column with unique IDs
             - categories: Optional list/string of categories
             - classifier_model: Model name (default: "gemma3n:latest")
-            - backend: "ollama" or "openai" (default: "ollama")
+            - classifier_backend: "ollama" or "openai" (default: "ollama")
+            - category_backend: Backend for category generation (default: same as classifier_backend)
             - multiclass: Enable multi-label (default: False)
             - n_samples: Samples for category generation (default: 100)
             - question_context: Context for category generation
@@ -62,14 +63,23 @@ def classify_texts(
     
     # Load data
     df = pd.read_csv(config["file_path"],keep_default_na=False)
+
+    # Drop rows where text column is empty or has less than 1 character
+    original_count = len(df)
+    df = df[df[config["text_column"]].str.len() >= 1]
+    dropped_count = original_count - len(df)
     
+    if dropped_count > 0:
+        print(f"[*] Dropped {dropped_count} rows with empty text")
+
+
     # Parse categories from config
     categories = parse_categories(config)
     
     # Initialize classifier
     classifier = TextClassifier(
-        config.get("classifier_model", "gemma3n:latest"),
-        config.get("classifier_backend", config.get("backend", "ollama"))
+        config["classifier_model"],
+        config["classifier_backend"]
     )
     
     # Run classification
@@ -78,12 +88,16 @@ def classify_texts(
         text_column=config["text_column"],
         id_column=config["id_column"],
         categories=categories,
-        multiclass=config.get("multiclass", False),
-        n_samples=config.get("n_samples", 100),
-        question_context=config.get("question_context", ""),
-        category_model=config.get("category_model"),
-        category_backend=config.get("category_backend", config.get("classifier_backend", config.get("backend", "ollama")))
+        multiclass=config["multiclass"],
+        n_samples=config["n_samples"],
+        question_context=config["question_context"],
+        category_model=config["category_model"],
+        category_backend=config["category_backend"]
     )
+
+    # Add dropped count to metrics
+    metrics["dropped_empty_rows"] = dropped_count
+    metrics["original_rows"] = original_count    
     
     # Create run record
     run = ClassificationRun(
@@ -111,6 +125,7 @@ def validate_classification(
 ) -> str:
     """
     Validate a classification run using LLM-as-judge.
+    Supports both single category and multiclass validation.
     
     Args:
         classification_run_id: ID of the classification run to validate
@@ -144,26 +159,34 @@ def validate_classification(
     
     # Initialize validator
     validator = ClassificationValidator(
-        config.get("judge_model", "gemma3n:latest"),
-        config.get("backend", "ollama")
+        config["judge_model"],
+        config["judge_backend"]  # Changed from config.get("backend", "ollama")
     )
     
-    # Determine category column
-    if class_run.config.get("multiclass", False):
-        # For multiclass, we'd need to validate each category separately
-        # For now, let's skip multiclass validation
-        raise NotImplementedError("Multiclass validation not yet implemented")
-    else:
-        category_column = "category"
+    # Determine if multiclass
+    multiclass = class_run.config.get("multiclass", False)
     
     # Run validation
-    validated_df, metrics = validator.validate_classification_run(
-        df=classified_df,
-        text_column=class_run.config["text_column"],
-        category_column=category_column,
-        categories=class_run.categories,
-        sample_size=config.get("validation_samples")
-    )
+    if multiclass:
+        # For multiclass, we don't have a single category column
+        validated_df, metrics = validator.validate_classification_run(
+            df=classified_df,
+            text_column=class_run.config["text_column"],
+            category_column=None,
+            categories=class_run.categories,
+            sample_size=config.get("validation_samples"),
+            multiclass=True
+        )
+    else:
+        # Single category validation
+        validated_df, metrics = validator.validate_classification_run(
+            df=classified_df,
+            text_column=class_run.config["text_column"],
+            category_column="category",
+            categories=class_run.categories,
+            sample_size=config.get("validation_samples"),
+            multiclass=False
+        )
     
     # Generate validation ID
     val_id = datetime.now().strftime("%Y%m%d_%H%M%S") + "_" + str(uuid.uuid4())[:8]
@@ -182,7 +205,8 @@ def validate_classification(
         "timestamp": datetime.now().isoformat(),
         "config": config,
         "results_file": str(output_file),
-        "metrics": metrics
+        "metrics": metrics,
+        "multiclass": multiclass
     }
     
     storage.metadata["validation_runs"][val_id] = val_run
@@ -190,10 +214,15 @@ def validate_classification(
     
     print(f"[*] Validation complete. ID: {val_id}")
     print(f"[*] Average quality score: {metrics['average_score']:.2f}")
+    
+    if multiclass and "category_scores" in metrics:
+        print(f"[*] Per-category scores:")
+        for cat, score in metrics["category_scores"].items():
+            print(f"    - {cat}: {score:.2f}")
+    
     print(f"[*] Results saved to: {output_file}")
     
     return val_id
-
 
 def load_classification_results(
     run_id: str,
@@ -354,6 +383,139 @@ def get_run_info(
     
     raise ValueError(f"Run {run_id} not found")
 
+def generate_categories_only(
+    config: Dict[str, Any],
+    save_to_file: bool = True,
+    storage_dir: Path = Path("./runs")
+) -> List[str]:
+    """
+    Generate categories from data without running classification.
+    
+    Args:
+        config: Configuration dictionary with keys:
+            - file_path: Path to input CSV
+            - text_column: Column containing text
+            - n_samples: Number of samples for category generation (default: 100)
+            - question_context: Context for category generation
+            - category_model: Model for generating categories (default: classifier_model)
+            - category_backend: Backend for category generation (default: classifier_backend)
+        save_to_file: Whether to save categories to a JSON file
+        storage_dir: Directory to save categories file
+        
+    Returns:
+        List of generated categories
+        
+    Example:
+        >>> config = {
+        ...     "file_path": "survey.csv",
+        ...     "text_column": "response",
+        ...     "question_context": "What features would you like to see?"
+        ... }
+        >>> categories = generate_categories_only(config)
+        >>> print(categories)
+        ['Feature Request', 'Bug Report', 'Positive Feedback', ...]
+    """
+    # Apply defaults but only validate required fields for category generation
+    config_with_defaults = get_config_with_defaults(config)
+    
+    # Minimal validation - we don't need id_column for category generation
+    required = ["file_path", "text_column"]
+    missing = [key for key in required if key not in config]
+    if missing:
+        raise ValueError(f"Missing required config parameters: {missing}")
+    
+    # Validate file exists
+    file_path = Path(config_with_defaults["file_path"])  # Use config_with_defaults
+    if not file_path.exists():
+        raise FileNotFoundError(f"Input file not found: {file_path}")
+    
+    # Load data
+    print(f"[*] Loading data from {file_path}")
+    df = pd.read_csv(file_path, keep_default_na=False)
+    
+    # Drop empty rows
+    original_count = len(df)
+    df = df[df[config_with_defaults["text_column"]].str.len() >= 1]  # Use config_with_defaults
+    dropped_count = original_count - len(df)
+    
+    if dropped_count > 0:
+        print(f"[*] Dropped {dropped_count} rows with empty text")
+    
+    print(f"[*] Total rows available: {len(df)}")
+    
+    # Initialize classifier for category generation
+    classifier = TextClassifier(
+        config_with_defaults.get("category_model") or config_with_defaults["classifier_model"],
+        config_with_defaults.get("category_backend") or config_with_defaults["classifier_backend"]
+    )
+    
+    # Generate categories
+    categories = classifier.generate_categories(
+        df=df,
+        text_column=config_with_defaults["text_column"],  # Use config_with_defaults
+        n_samples=config_with_defaults.get("n_samples", 100),
+        question_context=config_with_defaults.get("question_context", "")
+    )
+    
+    print(f"\n[*] Generated {len(categories)} categories:")
+    for i, cat in enumerate(categories, 1):
+        print(f"    {i}. {cat}")
+    
+    # Save categories if requested
+    if save_to_file:
+        storage_dir = Path(storage_dir)
+        storage_dir.mkdir(exist_ok=True)
+        
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        cat_file = storage_dir / f"categories_{timestamp}.json"
+        
+        save_data = {
+            "categories": categories,
+            "metadata": {
+                "timestamp": datetime.now().isoformat(),
+                "source_file": str(file_path),
+                "text_column": config_with_defaults["text_column"],  # Use config_with_defaults
+                "n_samples": config_with_defaults.get("n_samples", 100),
+                "question_context": config_with_defaults.get("question_context", ""),
+                "model": config_with_defaults.get("category_model") or config_with_defaults["classifier_model"],
+                "backend": config_with_defaults.get("category_backend") or config_with_defaults["classifier_backend"],
+                "total_rows": len(df),
+                "dropped_empty_rows": dropped_count
+            }
+        }
+        
+        with open(cat_file, 'w') as f:
+            json.dump(save_data, f, indent=2)
+        
+        print(f"\n[*] Categories saved to: {cat_file}")
+    
+    return categories
+
+def load_saved_categories(
+    categories_file: Union[str, Path]
+) -> Tuple[List[str], Dict[str, Any]]:
+    """
+    Load categories from a previously saved categories file.
+    
+    Args:
+        categories_file: Path to the categories JSON file
+        
+    Returns:
+        Tuple of (categories list, metadata dict)
+        
+    Example:
+        >>> categories, metadata = load_saved_categories("./runs/categories_20231230_143022.json")
+        >>> print(f"Loaded {len(categories)} categories generated on {metadata['timestamp']}")
+    """
+    categories_file = Path(categories_file)
+    
+    if not categories_file.exists():
+        raise FileNotFoundError(f"Categories file not found: {categories_file}")
+    
+    with open(categories_file) as f:
+        data = json.load(f)
+    
+    return data["categories"], data.get("metadata", {})
 
 # Convenience function for loading config from file
 def load_config(config_path: str = "config.json") -> Dict[str, Any]:

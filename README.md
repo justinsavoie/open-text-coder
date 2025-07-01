@@ -5,310 +5,348 @@ A flexible system for classifying open-text survey responses using LLMs, with bu
 ## Features
 
 - **Multiple LLM backends**: Support for Ollama and OpenAI models
-- **Automatic category generation**: Can generate categories from sample responses
-- **Single and multi-label classification**: Assign one or multiple categories per response
-- **Built-in validation**: Use LLM-as-judge to validate classification quality
-- **Experiment tracking**: All runs are saved with metadata for comparison
-- **Flexible configuration**: Override any parameter programmatically
+- **Automatic category generation**: Let the LLM discover categories from your data
+- **Manual category specification**: Use predefined categories for consistent classification
+- **Multi-label classification**: Assign multiple categories to a single response
+- **Built-in validation**: Use LLM-as-judge to assess classification quality
+- **Experiment tracking**: Automatic storage and versioning of all runs
+- **Robust error handling**: Retry logic and graceful degradation
+- **Empty response handling**: Automatic filtering of empty/invalid responses
 
 ## Installation
 
 ```bash
 # Clone the repository
-git clone <your-repo>
+git clone https://github.com/yourusername/text-classifier.git
 cd text-classifier
 
 # Install dependencies
-pip install pandas tqdm ollama
+pip install pandas tqdm ollama openai
 
-# Optional: For OpenAI support
-pip install openai
-export OPENAI_API_KEY="your-key-here"
+# For OpenAI support, set your API key
+export OPENAI_API_KEY="your-api-key-here"
 ```
 
 ## Project Structure
 
 ```
-your_project/
-├── text_classifier/
-│   ├── __init__.py
-│   ├── models.py          # Data models (ClassificationRun, ValidationRun)
-│   ├── storage.py         # Data storage and retrieval (RunStorage)
-│   ├── classifier.py      # Classification logic (TextClassifier)
-│   ├── validator.py       # Validation logic (ClassificationValidator)
-│   ├── config.py          # Configuration utilities
-│   └── api.py            # High-level API functions
-├── analysis.py        # Your analysis scripts
-├── config.json        # Default configuration
-├── README.md         # This file
-├── data-cps21.csv    # Your data files
-└── runs/             # Storage directory (created automatically)
+text_classifier/
+├── __init__.py          # Package initialization and exports
+├── api.py               # High-level API functions
+├── classifier.py        # Core classification logic
+├── validator.py         # Classification validation using LLM-as-judge
+├── config.py            # Configuration management
+├── models.py            # Data models for runs and validations
+└── storage.py           # Run storage and retrieval
+
+runs/                    # Created automatically to store results
+├── classification_*/    # Classification run folders
+├── validation_*/        # Validation run folders
+└── categories_*.json    # Generated category files
 ```
 
 ## Quick Start
 
-### 1. Basic Classification
+### 1. Basic Classification with Auto-Generated Categories
 
 ```python
-from text_classifier.api import classify_texts, validate_classification
+from text_classifier import classify_texts
 
-# Option 1: Use config file
+# Minimal configuration - let the system figure out categories
 config = {
-    "file_path": "data-cps21.csv",
-    "text_column": "cps21_imp_iss",
-    "id_column": "cps21_ResponseId",
-    "classifier_model": "gemma3n:latest",
-    "backend": "ollama"
+    "file_path": "survey_responses.csv",
+    "text_column": "response",
+    "id_column": "respondent_id"
 }
 
 # Run classification
 run_id = classify_texts(config)
 print(f"Classification complete! Run ID: {run_id}")
-
-# Validate the results
-val_id = validate_classification(run_id)
 ```
 
-### 2. Generate Categories Automatically
+### 2. Classification with Predefined Categories
 
 ```python
+# Use your own categories
 config = {
-    "file_path": "survey_responses.csv",
-    "text_column": "response",
-    "id_column": "id",
-    "n_samples": 100,  # Sample size for category generation
-    "question_context": "What is most important to you?",
-    "category_model": "cogito:14b",  # Model for generating categories
-    "classifier_model": "gemma3n:latest"  # Model for classification
+    "file_path": "support_tickets.csv",
+    "text_column": "ticket_text",
+    "id_column": "ticket_id",
+    "categories": ["Technical Issue", "Billing", "Feature Request", "Other"],
+    "question_context": "Customer support ticket"
 }
 
 run_id = classify_texts(config)
 ```
 
-### 3. Use Specific Categories
+### 3. Multi-label Classification
 
 ```python
+# Each response can belong to multiple categories
 config = {
-    "file_path": "data.csv",
-    "text_column": "response",
-    "id_column": "id",
-    "categories": ["Healthcare", "Economy", "Education", "Environment", "Other"],
-    "classifier_model": "gpt-3.5-turbo",
-    "backend": "openai"
+    "file_path": "product_reviews.csv",
+    "text_column": "review_text",
+    "id_column": "review_id",
+    "multiclass": True,
+    "categories": ["Quality Issues", "Shipping Problems", "Good Value", "Easy to Use"],
+    "question_context": "Product review"
 }
 
 run_id = classify_texts(config)
+
+# Load results
+from text_classifier import load_classification_results
+results = load_classification_results(run_id)
+# Results will have columns: review_id, review_text, Quality Issues, Shipping Problems, etc.
+# Each category column contains "yes" or "no"
 ```
 
-### 4. Multi-label Classification
+### 4. Generate Categories Without Classification
 
 ```python
+from text_classifier import generate_categories_only
+
+# Explore what categories the LLM finds in your data
 config = {
-    "file_path": "data.csv",
-    "text_column": "response", 
-    "id_column": "id",
-    "multiclass": True,  # Enable multi-label
-    "categories": ["Urgent", "Important", "Complex", "Political", "Personal"]
+    "file_path": "survey.csv",
+    "text_column": "comments",
+    "n_samples": 200,  # Use 200 samples to generate categories
+    "question_context": "What features would you like to see in our app?"
 }
 
-run_id = classify_texts(config)
-# Output will have columns for each category with "yes"/"no" values
+categories = generate_categories_only(config)
+print("Discovered categories:", categories)
+
+# Load saved categories later
+from text_classifier import load_saved_categories
+categories, metadata = load_saved_categories("./runs/categories_20231230_143022.json")
 ```
 
-### 5. Compare Multiple Runs
+### 5. Validate Classification Quality
 
 ```python
-from text_classifier import compare_runs, classify_texts
+from text_classifier import validate_classification
 
-# Try different models
-models = ["gemma3n:latest", "llama2", "mistral"]
-run_ids = []
-
-for model in models:
-    config["classifier_model"] = model
-    run_id = classify_texts(config)
-    run_ids.append(run_id)
-
-# Compare results
-compare_runs(run_ids)
-```
-
-### 6. Advanced Analysis Script
-
-```python
-# analysis.py
-from text_classifier import (
-    classify_texts, 
-    validate_classification,
-    load_classification_results,
-    list_all_runs
+# Validate a previous classification run
+validation_id = validate_classification(
+    classification_run_id=run_id,
+    sample_size=50  # Validate 50 random samples
 )
-import json
 
-# Load base config
-with open("config.json") as f:
-    base_config = json.load(f)
+# Load validation results
+from text_classifier import load_validation_results
+val_results = load_validation_results(validation_id)
+print(f"Average quality score: {val_results['quality_score'].mean():.2f}/5.0")
+```
 
-# Experiment 1: Compare backends
-for backend in ["ollama", "openai"]:
-    config = base_config.copy()
-    config["backend"] = backend
-    config["classifier_model"] = "gpt-3.5-turbo" if backend == "openai" else "gemma3n:latest"
-    
-    run_id = classify_texts(config)
-    validate_classification(run_id, sample_size=50)
+### 6. Using Different Models
 
-# Experiment 2: Test category generation
-config = base_config.copy()
-config.pop("categories", None)  # Remove predefined categories
-config["n_samples"] = 200  # Use more samples
+```python
+# Use GPT-4 for category generation, GPT-3.5 for classification
+config = {
+    "file_path": "data.csv",
+    "text_column": "text",
+    "id_column": "id",
+    "category_model": "gpt-4",
+    "category_backend": "openai",
+    "classifier_model": "gpt-3.5-turbo",
+    "classifier_backend": "openai",
+    "judge_model": "gpt-4",  # For validation
+    "judge_backend": "openai"
+}
 
 run_id = classify_texts(config)
+```
 
-# Load and analyze results
-df = load_classification_results(run_id)
-print(df["category"].value_counts())
+### 7. Compare Multiple Runs
 
-# List all runs
-all_runs = list_all_runs()
-for run in all_runs:
-    print(f"{run['run_id']}: {run['timestamp']} - {run['metrics']}")
+```python
+from text_classifier import compare_runs, list_all_runs
+
+# List all classification runs
+runs = list_all_runs("classification")
+for run in runs[:5]:  # Show last 5 runs
+    print(f"{run['run_id']}: {run['timestamp']}")
+
+# Compare specific runs
+comparison = compare_runs([
+    "20231230_143022_abc123",
+    "20231230_150000_def456"
+])
+```
+
+### 8. Load Configuration from File
+
+```python
+# config.json
+{
+    "file_path": "responses.csv",
+    "text_column": "answer",
+    "id_column": "id",
+    "categories": ["Satisfied", "Neutral", "Dissatisfied"],
+    "question_context": "How satisfied are you with our service?",
+    "classifier_model": "gemma2:latest",
+    "n_samples": 100
+}
+```
+
+```python
+from text_classifier import load_config, classify_texts
+
+config = load_config("config.json")
+run_id = classify_texts(config)
 ```
 
 ## Configuration Options
 
-| Parameter | Type | Description | Default |
-|-----------|------|-------------|---------|
-| `file_path` | str | Path to input CSV file | Required |
-| `text_column` | str | Column containing text to classify | Required |
-| `id_column` | str | Column with unique identifiers | Required |
-| `categories` | list/str | Predefined categories (comma-separated string or list) | None (auto-generate) |
-| `multiclass` | bool | Enable multi-label classification | False |
-| `classifier_model` | str | Model for classification | "gemma3n:latest" |
-| `category_model` | str | Model for generating categories | Same as classifier_model |
-| `backend` | str | LLM backend ("ollama" or "openai") | "ollama" |
-| `n_samples` | int | Sample size for category generation | 100 |
-| `question_context` | str | Survey question for context | "" |
-| `validation_samples` | int | Sample size for validation | None (validate all) |
-| `judge_model` | str | Model for validation | "gemma3n:latest" |
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| **file_path** | str | *required* | Path to input CSV file |
+| **text_column** | str | *required* | Column name containing text to classify |
+| **id_column** | str | *required* | Column name with unique identifiers |
+| **categories** | list/str | None | Predefined categories (auto-generated if None) |
+| **classifier_model** | str | "gemma3n:latest" | Model for classification |
+| **classifier_backend** | str | "ollama" | Backend: "ollama" or "openai" |
+| **category_model** | str | *classifier_model* | Model for category generation |
+| **category_backend** | str | *classifier_backend* | Backend for category generation |
+| **judge_model** | str | "gemma3n:latest" | Model for validation |
+| **judge_backend** | str | *classifier_backend* | Backend for validation |
+| **multiclass** | bool | False | Enable multi-label classification |
+| **n_samples** | int | 100 | Samples to use for category generation |
+| **question_context** | str | "" | Original survey question for context |
+| **validation_samples** | int | None | Number of samples to validate (None = all) |
+| **max_retries** | int | 3 | Maximum retries for API calls |
 
 ## API Reference
 
-### Main Functions
+### Core Functions
+
+#### `classify_texts(config, run_id=None, storage_dir="./runs")`
+Run text classification on a dataset.
+
+**Returns:** `str` - Unique run identifier
+
+#### `validate_classification(classification_run_id, config=None, sample_size=None, storage_dir="./runs")`
+Validate classification quality using LLM-as-judge.
+
+**Returns:** `str` - Unique validation identifier
+
+#### `generate_categories_only(config, save_to_file=True, storage_dir="./runs")`
+Generate categories without running classification.
+
+**Returns:** `List[str]` - List of generated categories
+
+### Data Loading Functions
+
+#### `load_classification_results(run_id, storage_dir="./runs")`
+Load classification results as a pandas DataFrame.
+
+#### `load_validation_results(validation_id, storage_dir="./runs")`
+Load validation results as a pandas DataFrame.
+
+#### `load_saved_categories(categories_file)`
+Load previously generated categories from JSON file.
+
+**Returns:** `Tuple[List[str], Dict]` - (categories, metadata)
+
+### Analysis Functions
+
+#### `compare_runs(run_ids, storage_dir="./runs")`
+Compare metrics across multiple classification runs.
+
+**Returns:** `pd.DataFrame` - Comparison table
+
+#### `list_all_runs(run_type="classification", storage_dir="./runs")`
+List all runs of specified type.
+
+**Returns:** `List[Dict]` - List of run metadata
+
+#### `get_run_info(run_id, storage_dir="./runs")`
+Get detailed information about a specific run.
+
+**Returns:** `Dict` - Complete run information
+
+### Utility Functions
+
+#### `load_config(config_path="config.json")`
+Load configuration from JSON file.
+
+**Returns:** `Dict` - Configuration dictionary
+
+## Advanced Usage
+
+### Custom Validation Logic
 
 ```python
-# Classify texts
-run_id = classify_texts(
-    config: dict,
-    run_id: str = None,  # Optionally specify run ID
-    storage_dir: Path = Path("./runs")
-) -> str
+# Run validation with custom configuration
+val_config = {
+    "judge_model": "gpt-4",
+    "judge_backend": "openai",
+    "validation_samples": 100
+}
 
-# Validate classification
-val_id = validate_classification(
-    classification_run_id: str,
-    config: dict = None,  # Override validation settings
-    sample_size: int = None,
-    storage_dir: Path = Path("./runs")
-) -> str
-
-# Load results
-df = load_classification_results(
-    run_id: str,
-    storage_dir: Path = Path("./runs")
-) -> pd.DataFrame
-
-# Compare runs
-comparison_df = compare_runs(
-    run_ids: List[str],
-    storage_dir: Path = Path("./runs")
-) -> pd.DataFrame
-
-# List all runs
-runs = list_all_runs(
-    run_type: str = "classification",  # or "validation"
-    storage_dir: Path = Path("./runs")
-) -> List[dict]
+validation_id = validate_classification(
+    run_id,
+    config=val_config
+)
 ```
 
-### Lower-Level Access
+### Batch Processing
 
 ```python
-from text_classifier.classifier import TextClassifier
-from text_classifier.storage import RunStorage
+import glob
 
-# Direct classifier usage
-classifier = TextClassifier("gemma3n:latest", "ollama")
-category = classifier.classify_single("This is about healthcare", ["Health", "Economy", "Other"])
+# Process multiple files with same configuration
+base_config = {
+    "text_column": "feedback",
+    "id_column": "id",
+    "categories": ["Positive", "Negative", "Neutral", "Bug Report", "Feature Request"]
+}
 
-# Direct storage access
-storage = RunStorage()
-run = storage.get_classification_run("20240115_143022_a1b2c3d4")
-df = storage.load_classification_data(run.run_id)
+for file in glob.glob("data/*.csv"):
+    config = base_config.copy()
+    config["file_path"] = file
+    
+    run_id = classify_texts(config)
+    print(f"Processed {file}: {run_id}")
 ```
 
-## Output Structure
+### Export Results
 
-Each classification run creates:
+```python
+# Combine classification and validation results
+run_id = "20231230_143022_abc123"
+class_results = load_classification_results(run_id)
+val_results = load_validation_results(validation_id)
+
+# Merge on ID column
+combined = class_results.merge(
+    val_results[['id', 'quality_score', 'explanation']], 
+    on='id'
+)
+
+# Export high-quality classifications
+high_quality = combined[combined['quality_score'] >= 4]
+high_quality.to_csv("high_quality_classifications.csv", index=False)
 ```
-runs/
-├── metadata.json                                    # Global run registry
-├── classification_20240115_143022_a1b2c3d4/
-│   ├── config.json                                 # Run configuration
-│   └── classified_20240115_143022_a1b2c3d4.csv   # Results
-└── validation_20240115_144512_e5f6g7h8/
-    └── validation_20240115_144512_e5f6g7h8.csv    # Validation results
-```
 
-Classification output columns:
-- Single-class: `id_column`, `text_column`, `category`
-- Multi-class: `id_column`, `text_column`, `category1`, `category2`, ...
+## Tips and Best Practices
 
-Validation output columns:
-- All classification columns plus: `quality_score` (1-5), `explanation`
+1. **Start with category generation**: Use `generate_categories_only()` to explore your data before running full classification.
 
-## Tips
+2. **Provide context**: Always include `question_context` - it significantly improves classification accuracy.
 
-1. **Start with small samples**: Test with `validation_samples=20` to quickly iterate
-2. **Compare models**: Always try 2-3 different models to see which works best
-3. **Refine categories**: If auto-generated categories aren't good, manually specify them
-4. **Check validation scores**: Average scores below 3.5 suggest classification issues
-5. **Use appropriate models**: 
-   - Larger models (70B+) for category generation
+3. **Validate samples**: For large datasets, validate a representative sample rather than all results.
+
+4. **Use appropriate models**: 
+   - Larger models (GPT-4, Claude) for category generation
    - Smaller, faster models for classification
-   - High-quality models for validation
+   - Best available model for validation
 
-## Troubleshooting
+5. **Monitor quality**: Check validation scores and adjust categories or models as needed.
 
-**Import errors**: Make sure the text_classifier package is in your Python path:
-```python
-# If running from the project root
-import sys
-sys.path.append('.')  # Add current directory to path
-```
+6. **Handle edge cases**: The system automatically filters empty responses, but review the `dropped_empty_rows` metric.
 
-**Ollama connection errors**: Ensure Ollama is running:
-```bash
-ollama serve
-```
+## License
 
-**OpenAI errors**: Check your API key:
-```python
-import os
-os.environ["OPENAI_API_KEY"] = "your-key"
-```
-
-**Memory issues**: Reduce sample sizes or process in batches:
-```python
-# Process large files in chunks
-chunk_size = 1000
-for i in range(0, len(df), chunk_size):
-    chunk_df = df.iloc[i:i+chunk_size]
-    # Process chunk...
-```
-
-**Package not found errors**: Install missing packages:
-```bash
-pip install pandas tqdm ollama
-# Optional: pip install openai
-```
+MIT License - see LICENSE file for details.

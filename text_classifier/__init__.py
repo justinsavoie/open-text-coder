@@ -14,7 +14,9 @@ from .api import (
     compare_runs,
     list_all_runs,
     get_run_info,
-    load_config
+    load_config,
+    generate_categories_only,  
+    load_saved_categories      
 )
 
 # Import classes for advanced usage
@@ -35,6 +37,8 @@ __all__ = [
     "list_all_runs",
     "get_run_info",
     "load_config",
+    "generate_categories_only",  
+    "load_saved_categories"   
     
     # Classes
     "TextClassifier",

@@ -78,8 +78,8 @@ cog_scores = []
 for model in run_ids:
     df_gpt = load_validation_results(val_ids_gpt[model])
     df_cog = load_validation_results(val_ids_cogito[model])
-    df_merged = df_gpt[["id", "quality_score"]].merge(
-        df_cog[["id", "quality_score"]], on="id", suffixes=("_gpt", "_cog")
+    df_merged = df_gpt[["cps21_ResponseId", "quality_score"]].merge(
+        df_cog[["cps21_ResponseId", "quality_score"]], on="cps21_ResponseId", suffixes=("_gpt", "_cog")
     )
     corr, _ = pearsonr(df_merged["quality_score_gpt"], df_merged["quality_score_cog"])
     print(f"{model}: Pearson r = {corr:.2f}")

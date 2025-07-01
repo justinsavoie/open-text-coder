@@ -1,9 +1,12 @@
 # text_classifier/storage.py
 import json
 from pathlib import Path
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, TYPE_CHECKING
 import pandas as pd
 from datetime import datetime
+
+if TYPE_CHECKING:
+    from .models import ClassificationRun
 
 
 class RunStorage:
@@ -49,7 +52,7 @@ class RunStorage:
         """Retrieve classification run metadata"""
         if run_id in self.metadata["classification_runs"]:
             data = self.metadata["classification_runs"][run_id]
-            # Import here to avoid circular import
+            # Import at runtime
             from .models import ClassificationRun
             return ClassificationRun(
                 run_id=data['run_id'],

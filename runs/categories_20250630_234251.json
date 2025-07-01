@@ -1,0 +1,27 @@
+{
+  "categories": [
+    "Product Quality - Excellent",
+    "Product Quality - Below Average",
+    "Value for Money - Good",
+    "Shipping Speed - Fast",
+    "Color Accuracy - Issue",
+    "Customer Service - Poor",
+    "Product Condition - Damaged",
+    "Overall Satisfaction - Positive",
+    "Overall Satisfaction - Neutral",
+    "Overall Satisfaction - Negative",
+    "Unsure/Needs Time",
+    "Other/Unspecified Issues"
+  ],
+  "metadata": {
+    "timestamp": "2025-06-30T23:42:51.806023",
+    "source_file": "sample_responses.csv",
+    "text_column": "response",
+    "n_samples": 150,
+    "question_context": "What improvements would you suggest for our service?",
+    "model": "gemma3n:latest",
+    "backend": "ollama",
+    "total_rows": 10,
+    "dropped_empty_rows": 0
+  }
+}
