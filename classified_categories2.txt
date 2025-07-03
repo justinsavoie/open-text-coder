@@ -1,0 +1,72 @@
+o3
+
+1.Climate change & environment
+2.Economic recovery, jobs & inflation
+3.Healthcare system & access (including pharmacare)
+4.COVID-19 pandemic response & preparedness
+5.Housing affordability & homelessness
+6.Government spending, debt & taxation
+7.Indigenous reconciliation & rights
+8.Senior care & pensions
+9.Law & order & public safety
+10.Political leadership, ethics & governance
+11.Immigration & multiculturalism
+12.Education & childcare
+
+opus
+
+1.COVID-19 and Pandemic Response
+2.Economy and Fiscal Policy
+3.Healthcare and Senior Care
+4.Housing and Affordability
+5.Climate Change and Environment
+6.Indigenous Issues and Reconciliation
+7.Government Leadership and Accountability
+8.Social Programs and Benefits
+9.Quebec and Regional Issues
+10.Democratic Reform and Rights
+
+gemini cli
+
+1.Economy & Jobs
+2.Health Care & Seniors
+3.Environment & Climate Change
+4.COVID-19 Pandemic
+5.Government, Leadership & Politics
+6.Housing & Affordability
+7.Social & Human Rights
+8.Taxes & Fiscal Responsibility
+9.National Identity & Unity
+10.Indigenous Peoples & Reconciliation
+11.Foreign Policy & Defense
+12.Immigration
+
+Final
+
+1. **Economy, Jobs & Inflation** (taxes, fiscal policy, cost of living)
+2. **Healthcare & Senior Care** (hospitals, pharmacare, long-term care)
+3. **Climate Change & Environment** (carbon policy, conservation)
+4. **COVID-19 Pandemic Response & Preparedness**
+5. **Housing Affordability & Homelessness**
+6. **Indigenous Peoples & Reconciliation**
+7. **Government Leadership, Ethics & Accountability**
+8. **National Unity, Quebec & Regional Issues**
+9. **Law, Order & Public Safety** (crime, policing, gun control)
+10. **Social Programs, Education & Childcare** (EI, daycare, tuition)
+11. **Immigration & Multiculturalism**
+12. **Foreign Policy, Defence & International Relations**
+
+categories = [
+    "Economy, Jobs & Inflation (taxes, fiscal policy, cost of living)",
+    "Healthcare & Senior Care (hospitals, pharmacare, long-term care)",
+    "Climate Change & Environment (carbon policy, conservation)",
+    "COVID-19 Pandemic Response & Preparedness",
+    "Housing Affordability & Homelessness",
+    "Indigenous Peoples & Reconciliation",
+    "Government Leadership, Ethics & Accountability",
+    "National Unity, Quebec & Regional Issues",
+    "Law, Order & Public Safety (crime, policing, gun control)",
+    "Social Programs, Education & Childcare (EI, daycare, tuition)",
+    "Immigration & Multiculturalism",
+    "Foreign Policy, Defence & International Relations"
+]
