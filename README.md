@@ -197,6 +197,57 @@ config = load_config("config.json")
 run_id = classify_texts(config)
 ```
 
+### 9. Hybrid classification using SetFit
+
+```python
+# Example 1: Basic hybrid classification
+from text_classifier import classify_texts_hybrid
+
+config = {
+    "file_path": "survey_responses.csv",
+    "text_column": "response",
+    "id_column": "id",
+    "question_context": "What do you think about our product?",
+    # SetFit specific
+    "max_llm_samples": 300,  # Use LLM for up to 300 training samples
+    "confidence_threshold": 0.9,  # High confidence required for SetFit
+}
+
+run_id = classify_texts_hybrid(config)
+
+# Example 2: With predefined categories
+config = {
+    "file_path": "large_dataset.csv",
+    "text_column": "feedback",
+    "id_column": "id",
+    "categories": ["Positive", "Negative", "Neutral", "Feature Request", "Bug Report"],
+    "max_llm_samples": 500,  # More training data for 5 categories
+    "min_samples_per_category": 20,  # Ensure good coverage
+}
+
+run_id = classify_texts_hybrid(config)
+
+# Example 3: Load and reuse trained model
+from text_classifier import load_setfit_model, load_classification_results
+
+# Load the trained model
+setfit_model = load_setfit_model(run_id)
+
+# Use it directly for new data
+new_texts = ["This product is amazing!", "Terrible experience"]
+predictions = setfit_model.predict_batch(new_texts, return_proba=True)
+for text, (category, confidence) in zip(new_texts, predictions):
+    print(f"{text} -> {category} (confidence: {confidence:.2f})")
+
+# Example 4: Check which samples used LLM vs SetFit
+results = load_classification_results(run_id)
+print("Classification sources:")
+print(results['source'].value_counts())
+print("\nLow confidence samples that used LLM:")
+low_conf = results[results['source'] == 'llm']
+print(low_conf[['text', 'category', 'confidence']].head())
+```
+
 ## Configuration Options
 
 | Parameter | Type | Default | Description |

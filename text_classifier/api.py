@@ -15,12 +15,15 @@ from .models import ClassificationRun, ValidationRun
 from .storage import RunStorage
 from .classifier import TextClassifier
 from .validator import ClassificationValidator
+from .setfit_classifier import SetFitClassifier, HybridClassifier, SETFIT_AVAILABLE
 from .config import (
     load_config as _load_config,
     validate_config,
     get_config_with_defaults,
     parse_categories
 )
+
+
 
 
 def classify_texts(
@@ -521,3 +524,196 @@ def load_saved_categories(
 def load_config(config_path: str = "config.json") -> Dict[str, Any]:
     """Load configuration from JSON file."""
     return _load_config(config_path)
+
+# Add to imports at the top of api.py
+from .setfit_classifier import SetFitClassifier, HybridClassifier, SETFIT_AVAILABLE
+
+# Add new function after the existing ones
+def classify_texts_hybrid(
+    config: Dict[str, Any],
+    run_id: Optional[str] = None,
+    storage_dir: Path = Path("./runs"),
+    train_config: Optional[Dict[str, Any]] = None
+) -> str:
+    """
+    Run text classification using hybrid LLM + SetFit approach.
+    
+    Args:
+        config: Standard configuration dictionary plus:
+            - use_setfit: Enable SetFit hybrid mode (default: True)
+            - setfit_model: SetFit model name (default: "sentence-transformers/paraphrase-mpnet-base-v2")
+            - confidence_threshold: Threshold for using SetFit vs LLM (default: 0.85)
+            - max_llm_samples: Max samples to classify with LLM for training (default: 200)
+            - min_samples_per_category: Min samples needed per category (default: 10)
+        run_id: Optional run ID (auto-generated if None)
+        storage_dir: Directory to store runs
+        train_config: Optional config for SetFit training:
+            - num_epochs: Training epochs (default: 1)
+            - batch_size: Training batch size (default: 16)
+            - validation_split: Validation split ratio (default: 0.2)
+        
+    Returns:
+        run_id: Unique identifier for this classification run
+    """
+    if not SETFIT_AVAILABLE:
+        raise ImportError("SetFit not available. Run: pip install setfit sentence-transformers")
+    
+    # Apply defaults and validate
+    config = get_config_with_defaults(config)
+    validate_config(config)
+    
+    # SetFit specific defaults
+    setfit_defaults = {
+        "use_setfit": True,
+        "setfit_model": "sentence-transformers/paraphrase-mpnet-base-v2",
+        "confidence_threshold": 0.85,
+        "max_llm_samples": 200,
+        "min_samples_per_category": 10
+    }
+    
+    for key, value in setfit_defaults.items():
+        if key not in config:
+            config[key] = value
+    
+    # Generate run ID if not provided
+    if run_id is None:
+        run_id = datetime.now().strftime("%Y%m%d_%H%M%S") + "_" + str(uuid.uuid4())[:8]
+    
+    # Initialize storage
+    storage = RunStorage(storage_dir)
+    run_dir = storage.base_dir / f"classification_{run_id}"
+    run_dir.mkdir(exist_ok=True)
+    
+    # Load and clean data
+    df = pd.read_csv(config["file_path"], keep_default_na=False)
+    original_count = len(df)
+    df = df[df[config["text_column"]].str.len() >= 1]
+    dropped_count = original_count - len(df)
+    
+    if dropped_count > 0:
+        print(f"[*] Dropped {dropped_count} rows with empty text")
+    
+    # Parse categories
+    categories = parse_categories(config)
+    
+    # Initialize LLM classifier
+    llm_classifier = TextClassifier(
+        config["classifier_model"],
+        config["classifier_backend"]
+    )
+    
+    # Generate categories if needed
+    if categories is None:
+        cat_classifier = TextClassifier(
+            model_name=config.get("category_model") or config["classifier_model"],
+            backend=config.get("category_backend") or config["classifier_backend"]
+        )
+        categories = cat_classifier.generate_categories(
+            df, 
+            config["text_column"], 
+            config["n_samples"], 
+            config["question_context"]
+        )
+        print(f"[*] Generated categories: {', '.join(categories)}")
+    else:
+        print(f"[*] Using provided categories: {', '.join(categories)}")
+    
+    # Initialize hybrid classifier
+    hybrid = HybridClassifier(
+        llm_classifier,
+        config["setfit_model"],
+        config["confidence_threshold"],
+        config["min_samples_per_category"],
+        config["max_llm_samples"]
+    )
+    
+    # Collect training data
+    print("\n=== Phase 1: Collecting training data with LLM ===")
+    training_df, training_metrics = hybrid.collect_training_data(
+        df.sample(frac=1, random_state=42),  # Shuffle for better sampling
+        config["text_column"],
+        config["id_column"],
+        categories,
+        config["question_context"]
+    )
+    
+    # Save training data
+    training_file = run_dir / "training_data.csv"
+    training_df.to_csv(training_file, index=False)
+    
+    # Train SetFit
+    print("\n=== Phase 2: Training SetFit model ===")
+    train_cfg = train_config or {}
+    setfit_metrics = hybrid.train_setfit(
+        validation_split=train_cfg.get("validation_split", 0.2)
+    )
+    
+    # Save SetFit model
+    setfit_dir = run_dir / "setfit_model"
+    hybrid.setfit.save(setfit_dir)
+    
+    # Classify all data
+    print("\n=== Phase 3: Hybrid classification ===")
+    classified_df, classification_metrics = hybrid.classify_hybrid(
+        df,
+        config["text_column"],
+        config["id_column"],
+        config["question_context"],
+        use_active_learning=True
+    )
+    
+    # Combine all metrics
+    metrics = {
+        "total_rows": len(df),
+        "dropped_empty_rows": dropped_count,
+        "original_rows": original_count,
+        "training_metrics": training_metrics,
+        "setfit_metrics": setfit_metrics,
+        "classification_metrics": classification_metrics,
+        "hybrid_mode": True,
+        "num_categories": len(categories)
+    }
+    
+    # Create run record
+    run = ClassificationRun(
+        run_id=run_id,
+        timestamp=datetime.now(),
+        config=config,
+        input_file=Path(config["file_path"]),
+        categories=categories,
+        metrics=metrics
+    )
+    
+    # Save results
+    output_file = storage.save_classification_run(run, classified_df)
+    
+    print(f"\n[*] Hybrid classification complete. Run ID: {run_id}")
+    print(f"[*] Results saved to: {output_file}")
+    print(f"[*] LLM used for: {classification_metrics['llm_percentage']:.1f}% of classifications")
+    
+    return run_id
+
+
+def load_setfit_model(
+    run_id: str,
+    storage_dir: Path = Path("./runs")
+) -> SetFitClassifier:
+    """
+    Load a trained SetFit model from a previous run.
+    
+    Args:
+        run_id: Classification run ID that used SetFit
+        storage_dir: Directory where runs are stored
+        
+    Returns:
+        Loaded SetFitClassifier instance
+    """
+    run_dir = storage_dir / f"classification_{run_id}" / "setfit_model"
+    
+    if not run_dir.exists():
+        raise ValueError(f"No SetFit model found for run {run_id}")
+    
+    classifier = SetFitClassifier()
+    classifier.load(run_dir)
+    
+    return classifier
