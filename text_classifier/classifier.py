@@ -263,17 +263,33 @@ Each category should be concise (2-5 words) and clearly distinct from others."""
                     if cat.lower() == response.lower():
                         return cat
                 
-                # If no match, log warning and return most likely category
-                print(f"Warning: LLM returned '{response}' which is not in categories. Using fallback.")
-                return categories[0]  # or could return "Uncategorized"
+                # Try regex matching - check if response is contained in exactly one category
+                response_lower = response.lower()
+                matches = []
+                
+                for cat in categories:
+                    if response_lower in cat.lower():
+                        matches.append(cat)
+                
+                if len(matches) == 1:
+                    # Found in exactly one category
+                    print(f"Warning: LLM returned '{response}' - matched to category '{matches[0]}' via substring match.")
+                    return matches[0]
+                else:
+                    # Not found or found in multiple categories
+                    if len(matches) > 1:
+                        print(f"Warning: LLM returned '{response}' which matches multiple categories: {matches}. Returning 'Uncategorized'.")
+                    else:
+                        print(f"Warning: LLM returned '{response}' which doesn't match any category. Returning 'Uncategorized'.")
+                    return "Uncategorized"
             
             return response
             
         except Exception as e:
             print(f"Error in classify_single: {e}")
             # Return a default category or raise depending on your needs
-            return "Classification Error"
-    
+            return "Classification Error"    
+
     def classify_single_multiclass(self, text: str, categories: List[str], question_context: str = "") -> Dict[str, str]:
         """Classify a single text into multiple categories with robust parsing"""
         category_list = "\n".join(f"{i+1}. {cat}" for i, cat in enumerate(categories))

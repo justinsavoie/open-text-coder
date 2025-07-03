@@ -1,5 +1,6 @@
 # concat_code.py
 files = [
+    "__init__.py",
     "api.py",
     "classifier.py",
     "config.py",

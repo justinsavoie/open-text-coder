@@ -1,3 +1,54 @@
+# ===== __init__.py =====
+# text_classifier/__init__.py
+"""
+Text Classification System
+
+A flexible system for classifying open-text survey responses using LLMs.
+"""
+
+# Import main API functions
+from .api import (
+    classify_texts,
+    validate_classification,
+    load_classification_results,
+    load_validation_results,
+    compare_runs,
+    list_all_runs,
+    get_run_info,
+    load_config,
+    generate_categories_only,  
+    load_saved_categories      
+)
+
+# Import classes for advanced usage
+from .classifier import TextClassifier
+from .validator import ClassificationValidator
+from .storage import RunStorage
+from .models import ClassificationRun, ValidationRun
+
+__version__ = "0.1.0"
+
+__all__ = [
+    # Main API
+    "classify_texts",
+    "validate_classification",
+    "load_classification_results",
+    "load_validation_results",
+    "compare_runs",
+    "list_all_runs",
+    "get_run_info",
+    "load_config",
+    "generate_categories_only",  
+    "load_saved_categories"   
+    
+    # Classes
+    "TextClassifier",
+    "ClassificationValidator",
+    "RunStorage",
+    "ClassificationRun",
+    "ValidationRun"
+]
+
 # ===== api.py =====
 # text_classifier/api.py
 """
@@ -9,7 +60,7 @@ from pathlib import Path
 from datetime import datetime
 import uuid
 import json
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, Optional, List, Union, Tuple  # Added Union and Tuple
 import pandas as pd
 
 from .models import ClassificationRun, ValidationRun
@@ -39,7 +90,8 @@ def classify_texts(
             - id_column: Column with unique IDs
             - categories: Optional list/string of categories
             - classifier_model: Model name (default: "gemma3n:latest")
-            - backend: "ollama" or "openai" (default: "ollama")
+            - classifier_backend: "ollama" or "openai" (default: "ollama")
+            - category_backend: Backend for category generation (default: same as classifier_backend)
             - multiclass: Enable multi-label (default: False)
             - n_samples: Samples for category generation (default: 100)
             - question_context: Context for category generation
@@ -63,14 +115,23 @@ def classify_texts(
     
     # Load data
     df = pd.read_csv(config["file_path"],keep_default_na=False)
+
+    # Drop rows where text column is empty or has less than 1 character
+    original_count = len(df)
+    df = df[df[config["text_column"]].str.len() >= 1]
+    dropped_count = original_count - len(df)
     
+    if dropped_count > 0:
+        print(f"[*] Dropped {dropped_count} rows with empty text")
+
+
     # Parse categories from config
     categories = parse_categories(config)
     
     # Initialize classifier
     classifier = TextClassifier(
-        config.get("classifier_model", "gemma3n:latest"),
-        config.get("classifier_backend", config.get("backend", "ollama"))
+        config["classifier_model"],
+        config["classifier_backend"]
     )
     
     # Run classification
@@ -79,12 +140,16 @@ def classify_texts(
         text_column=config["text_column"],
         id_column=config["id_column"],
         categories=categories,
-        multiclass=config.get("multiclass", False),
-        n_samples=config.get("n_samples", 100),
-        question_context=config.get("question_context", ""),
-        category_model=config.get("category_model"),
-        category_backend=config.get("category_backend", config.get("classifier_backend", config.get("backend", "ollama")))
+        multiclass=config["multiclass"],
+        n_samples=config["n_samples"],
+        question_context=config["question_context"],
+        category_model=config["category_model"],
+        category_backend=config["category_backend"]
     )
+
+    # Add dropped count to metrics
+    metrics["dropped_empty_rows"] = dropped_count
+    metrics["original_rows"] = original_count    
     
     # Create run record
     run = ClassificationRun(
@@ -112,6 +177,7 @@ def validate_classification(
 ) -> str:
     """
     Validate a classification run using LLM-as-judge.
+    Supports both single category and multiclass validation.
     
     Args:
         classification_run_id: ID of the classification run to validate
@@ -145,26 +211,34 @@ def validate_classification(
     
     # Initialize validator
     validator = ClassificationValidator(
-        config.get("judge_model", "gemma3n:latest"),
-        config.get("backend", "ollama")
+        config["judge_model"],
+        config["judge_backend"]  # Changed from config.get("backend", "ollama")
     )
     
-    # Determine category column
-    if class_run.config.get("multiclass", False):
-        # For multiclass, we'd need to validate each category separately
-        # For now, let's skip multiclass validation
-        raise NotImplementedError("Multiclass validation not yet implemented")
-    else:
-        category_column = "category"
+    # Determine if multiclass
+    multiclass = class_run.config.get("multiclass", False)
     
     # Run validation
-    validated_df, metrics = validator.validate_classification_run(
-        df=classified_df,
-        text_column=class_run.config["text_column"],
-        category_column=category_column,
-        categories=class_run.categories,
-        sample_size=config.get("validation_samples")
-    )
+    if multiclass:
+        # For multiclass, we don't have a single category column
+        validated_df, metrics = validator.validate_classification_run(
+            df=classified_df,
+            text_column=class_run.config["text_column"],
+            category_column=None,
+            categories=class_run.categories,
+            sample_size=config.get("validation_samples"),
+            multiclass=True
+        )
+    else:
+        # Single category validation
+        validated_df, metrics = validator.validate_classification_run(
+            df=classified_df,
+            text_column=class_run.config["text_column"],
+            category_column="category",
+            categories=class_run.categories,
+            sample_size=config.get("validation_samples"),
+            multiclass=False
+        )
     
     # Generate validation ID
     val_id = datetime.now().strftime("%Y%m%d_%H%M%S") + "_" + str(uuid.uuid4())[:8]
@@ -183,7 +257,8 @@ def validate_classification(
         "timestamp": datetime.now().isoformat(),
         "config": config,
         "results_file": str(output_file),
-        "metrics": metrics
+        "metrics": metrics,
+        "multiclass": multiclass
     }
     
     storage.metadata["validation_runs"][val_id] = val_run
@@ -191,10 +266,15 @@ def validate_classification(
     
     print(f"[*] Validation complete. ID: {val_id}")
     print(f"[*] Average quality score: {metrics['average_score']:.2f}")
+    
+    if multiclass and "category_scores" in metrics:
+        print(f"[*] Per-category scores:")
+        for cat, score in metrics["category_scores"].items():
+            print(f"    - {cat}: {score:.2f}")
+    
     print(f"[*] Results saved to: {output_file}")
     
     return val_id
-
 
 def load_classification_results(
     run_id: str,
@@ -355,6 +435,139 @@ def get_run_info(
     
     raise ValueError(f"Run {run_id} not found")
 
+def generate_categories_only(
+    config: Dict[str, Any],
+    save_to_file: bool = True,
+    storage_dir: Path = Path("./runs")
+) -> List[str]:
+    """
+    Generate categories from data without running classification.
+    
+    Args:
+        config: Configuration dictionary with keys:
+            - file_path: Path to input CSV
+            - text_column: Column containing text
+            - n_samples: Number of samples for category generation (default: 100)
+            - question_context: Context for category generation
+            - category_model: Model for generating categories (default: classifier_model)
+            - category_backend: Backend for category generation (default: classifier_backend)
+        save_to_file: Whether to save categories to a JSON file
+        storage_dir: Directory to save categories file
+        
+    Returns:
+        List of generated categories
+        
+    Example:
+        >>> config = {
+        ...     "file_path": "survey.csv",
+        ...     "text_column": "response",
+        ...     "question_context": "What features would you like to see?"
+        ... }
+        >>> categories = generate_categories_only(config)
+        >>> print(categories)
+        ['Feature Request', 'Bug Report', 'Positive Feedback', ...]
+    """
+    # Apply defaults but only validate required fields for category generation
+    config_with_defaults = get_config_with_defaults(config)
+    
+    # Minimal validation - we don't need id_column for category generation
+    required = ["file_path", "text_column"]
+    missing = [key for key in required if key not in config]
+    if missing:
+        raise ValueError(f"Missing required config parameters: {missing}")
+    
+    # Validate file exists
+    file_path = Path(config_with_defaults["file_path"])  # Use config_with_defaults
+    if not file_path.exists():
+        raise FileNotFoundError(f"Input file not found: {file_path}")
+    
+    # Load data
+    print(f"[*] Loading data from {file_path}")
+    df = pd.read_csv(file_path, keep_default_na=False)
+    
+    # Drop empty rows
+    original_count = len(df)
+    df = df[df[config_with_defaults["text_column"]].str.len() >= 1]  # Use config_with_defaults
+    dropped_count = original_count - len(df)
+    
+    if dropped_count > 0:
+        print(f"[*] Dropped {dropped_count} rows with empty text")
+    
+    print(f"[*] Total rows available: {len(df)}")
+    
+    # Initialize classifier for category generation
+    classifier = TextClassifier(
+        config_with_defaults.get("category_model") or config_with_defaults["classifier_model"],
+        config_with_defaults.get("category_backend") or config_with_defaults["classifier_backend"]
+    )
+    
+    # Generate categories
+    categories = classifier.generate_categories(
+        df=df,
+        text_column=config_with_defaults["text_column"],  # Use config_with_defaults
+        n_samples=config_with_defaults.get("n_samples", 100),
+        question_context=config_with_defaults.get("question_context", "")
+    )
+    
+    print(f"\n[*] Generated {len(categories)} categories:")
+    for i, cat in enumerate(categories, 1):
+        print(f"    {i}. {cat}")
+    
+    # Save categories if requested
+    if save_to_file:
+        storage_dir = Path(storage_dir)
+        storage_dir.mkdir(exist_ok=True)
+        
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        cat_file = storage_dir / f"categories_{timestamp}.json"
+        
+        save_data = {
+            "categories": categories,
+            "metadata": {
+                "timestamp": datetime.now().isoformat(),
+                "source_file": str(file_path),
+                "text_column": config_with_defaults["text_column"],  # Use config_with_defaults
+                "n_samples": config_with_defaults.get("n_samples", 100),
+                "question_context": config_with_defaults.get("question_context", ""),
+                "model": config_with_defaults.get("category_model") or config_with_defaults["classifier_model"],
+                "backend": config_with_defaults.get("category_backend") or config_with_defaults["classifier_backend"],
+                "total_rows": len(df),
+                "dropped_empty_rows": dropped_count
+            }
+        }
+        
+        with open(cat_file, 'w') as f:
+            json.dump(save_data, f, indent=2)
+        
+        print(f"\n[*] Categories saved to: {cat_file}")
+    
+    return categories
+
+def load_saved_categories(
+    categories_file: Union[str, Path]
+) -> Tuple[List[str], Dict[str, Any]]:
+    """
+    Load categories from a previously saved categories file.
+    
+    Args:
+        categories_file: Path to the categories JSON file
+        
+    Returns:
+        Tuple of (categories list, metadata dict)
+        
+    Example:
+        >>> categories, metadata = load_saved_categories("./runs/categories_20231230_143022.json")
+        >>> print(f"Loaded {len(categories)} categories generated on {metadata['timestamp']}")
+    """
+    categories_file = Path(categories_file)
+    
+    if not categories_file.exists():
+        raise FileNotFoundError(f"Categories file not found: {categories_file}")
+    
+    with open(categories_file) as f:
+        data = json.load(f)
+    
+    return data["categories"], data.get("metadata", {})
 
 # Convenience function for loading config from file
 def load_config(config_path: str = "config.json") -> Dict[str, Any]:
@@ -367,6 +580,8 @@ from typing import List, Dict, Any, Optional, Tuple
 import pandas as pd
 from tqdm import tqdm
 import os
+import time
+import re
 
 try:
     import ollama
@@ -380,38 +595,58 @@ except ImportError:
 
 
 class TextClassifier:
-    def __init__(self, model_name: str, backend: str = "ollama"):
+    def __init__(self, model_name: str, backend: str = "ollama", max_retries: int = 3):
         self.model_name = model_name
         self.backend = backend
+        self.max_retries = max_retries
 
         if backend == "openai":
             if openai is None:
                 raise ImportError("OpenAI package not installed. Run: pip install openai")
             if not os.getenv("OPENAI_API_KEY"):
                 raise ValueError("OPENAI_API_KEY environment variable not set")
-            self.client = openai.OpenAI()  # <-- initialize once here
+            self.client = openai.OpenAI()
         elif backend == "ollama":
             if ollama is None:
                 raise ImportError("Ollama package not installed. Run: pip install ollama")
     
-    def send_chat(self, messages: List[Dict[str, Any]]) -> Dict[str, Any]:
-        """Send chat request to LLM"""
-        print("[CHATDEBUG] Messages:")
-        for msg in messages:
-            print(f"  - {msg['role']}: {msg['content']}")
-    
-        if self.backend == "openai":
-            resp = self.client.chat.completions.create(
-                model=self.model_name,
-                messages=messages,
-            )
-            content = resp.choices[0].message.content
-            print("[CHATDEBUG] Response:\n", content)
-            return {"message": {"content": content}}
-        else:
-            tempz = ollama.chat(model=self.model_name, messages=messages)
-            print("[CHATDEBUG] Response:\n", tempz)
-            return tempz
+    def send_chat(self, messages: List[Dict[str, Any]], retry_count: int = 0) -> Dict[str, Any]:
+        """Send chat request to LLM with retry logic"""
+        try:
+            if self.backend == "openai":
+                try:
+                    resp = self.client.chat.completions.create(
+                        model=self.model_name,
+                        messages=messages,
+                    )
+                    content = resp.choices[0].message.content
+                    return {"message": {"content": content}}
+                except openai.RateLimitError as e:
+                    if retry_count < self.max_retries:
+                        wait_time = 2 ** retry_count  # Exponential backoff
+                        print(f"Rate limit hit, waiting {wait_time}s...")
+                        time.sleep(wait_time)
+                        return self.send_chat(messages, retry_count + 1)
+                    raise
+                except openai.APIError as e:
+                    if retry_count < self.max_retries:
+                        print(f"API error, retrying... ({retry_count + 1}/{self.max_retries})")
+                        time.sleep(1)
+                        return self.send_chat(messages, retry_count + 1)
+                    raise
+            else:  # ollama
+                try:
+                    return ollama.chat(model=self.model_name, messages=messages)
+                except Exception as e:
+                    if retry_count < self.max_retries:
+                        print(f"Ollama error, retrying... ({retry_count + 1}/{self.max_retries})")
+                        time.sleep(1)
+                        return self.send_chat(messages, retry_count + 1)
+                    raise
+                    
+        except Exception as e:
+            print(f"Failed after {self.max_retries} retries: {e}")
+            raise
     
     def generate_categories(
         self,
@@ -420,27 +655,172 @@ class TextClassifier:
         n_samples: int = 100,
         question_context: str = ""
     ) -> List[str]:
-        """Generate categories from sample responses"""
+        """Generate categories from sample responses with robust parsing"""
         print(f"[*] Sampling {n_samples} responses to generate categories...")
         sample = df[text_column].dropna().sample(n=min(n_samples, len(df)))
         sample_text = "\n\n".join(sample)
         
-        prompt = (
-            "The following are sample survey responses to the survey question:"
-            f" {question_context}\n\n"
-            f"{sample_text}\n\n"
-            "Based on these responses, generate 5-15 mutually exclusive categories "
-            "that summarise the main themes. Include a Don't know or Uncertain category "
-            "if appropriate. Return a comma-separated list only."
-        )
-        reply = self.send_chat([{"role": "system", "content": prompt}])
-        text = reply["message"]["content"].strip()
-        if "\n" in text:
-            text = text.split("\n")[-1]
-        return [c.strip() for c in text.split(",") if c.strip()]
-    
+        # More explicit prompt format
+        prompt = f"""The following are sample survey responses to the survey question: {question_context}
+
+{sample_text}
+
+Based on these responses, generate 5-15 mutually exclusive categories that summarise the main themes.
+
+IMPORTANT: Format your response as a numbered list, one category per line:
+1. First Category
+2. Second Category
+3. Third Category
+...
+
+Include a "Don't know/Uncertain" or "Other" category if appropriate.
+Each category should be concise (2-5 words) and clearly distinct from others."""
+        
+        try:
+            reply = self.send_chat([{"role": "system", "content": prompt}])
+            text = reply["message"]["content"].strip()
+            
+            # Parse categories with multiple strategies
+            categories = self._parse_categories(text)
+            
+            if not categories:
+                print("[!] Warning: Could not parse categories from LLM response")
+                # Fallback to generic categories
+                categories = ["Positive", "Negative", "Neutral", "Other"]
+            
+            # Validate and clean categories
+            categories = self._validate_categories(categories)
+            
+            return categories
+            
+        except Exception as e:
+            print(f"[!] Error generating categories: {e}")
+            # Return sensible defaults
+            return ["Positive", "Negative", "Neutral", "Other"]
+
+    def _validate_categories(self, categories: List[str]) -> List[str]:
+        """Validate and clean the parsed categories"""
+        cleaned = []
+        seen = set()
+        
+        for cat in categories:
+            # Remove any remaining numbering or bullets
+            cat = re.sub(r'^\d+[\.\)]\s*', '', cat)
+            cat = re.sub(r'^[-*•]\s*', '', cat)
+            
+            # Remove quotes
+            cat = cat.strip('"\'')
+            
+            # Remove trailing punctuation
+            cat = cat.rstrip('.,;:')
+            
+            # Normalize whitespace
+            cat = ' '.join(cat.split())
+            
+            # Skip if too short or too long
+            if len(cat) < 2 or len(cat) > 100:
+                continue
+            
+            # Skip duplicates (case-insensitive)
+            cat_lower = cat.lower()
+            if cat_lower in seen:
+                continue
+            seen.add(cat_lower)
+            
+            cleaned.append(cat)
+        
+        # Ensure we have at least some categories
+        if len(cleaned) < 3:
+            print(f"[!] Warning: Only {len(cleaned)} valid categories found")
+            # Add some generic ones if needed
+            generic = ["Other", "Uncertain", "Mixed"]
+            for g in generic:
+                if g.lower() not in seen:
+                    cleaned.append(g)
+                    if len(cleaned) >= 5:
+                        break
+        
+        # Cap at reasonable number
+        if len(cleaned) > 15:
+            print(f"[!] Warning: {len(cleaned)} categories found, capping at 15")
+            cleaned = cleaned[:15]
+        
+        return cleaned
+
+    def _parse_categories(self, text: str) -> List[str]:
+        """Parse categories from LLM response using multiple strategies"""
+        categories = []
+        
+        # Strategy 1: Parse numbered list (1. Category, 2. Category, etc.)
+        numbered_pattern = r'^\s*\d+[\.\)]\s*(.+)$'
+        lines = text.strip().split('\n')
+        
+        for line in lines:
+            match = re.match(numbered_pattern, line.strip())
+            if match:
+                categories.append(match.group(1).strip())
+        
+        if categories:
+            return categories
+        
+        # Strategy 2: Parse bullet points (- Category, * Category, • Category)
+        bullet_pattern = r'^\s*[-*•]\s*(.+)$'
+        for line in lines:
+            match = re.match(bullet_pattern, line.strip())
+            if match:
+                categories.append(match.group(1).strip())
+        
+        if categories:
+            return categories
+        
+        # Strategy 3: Parse comma-separated list
+        # Look for a line that contains multiple comma-separated items
+        for line in lines:
+            if ',' in line:
+                # Clean up common prefixes
+                line = re.sub(r'^(Categories:|The categories are:|Here are the categories:)', '', line, flags=re.IGNORECASE)
+                line = line.strip()
+                
+                # Split by comma and clean each item
+                potential_categories = [
+                    item.strip().strip('"\'') 
+                    for item in line.split(',') 
+                    if item.strip()
+                ]
+                
+                # Validate these look like categories (not too long)
+                if all(len(cat) < 50 for cat in potential_categories) and len(potential_categories) >= 3:
+                    categories = potential_categories
+                    break
+        
+        if categories:
+            return categories
+        
+        # Strategy 4: Each non-empty line as a category (if reasonable number)
+        # Filter out common non-category lines
+        exclude_patterns = [
+            r'^(here|these|the|based on|categories|following)',
+            r'^(include|should|must|note)',
+            r'^\d+$',  # Just numbers
+            r'^[a-z]$',  # Single lowercase letters
+        ]
+        
+        potential_categories = []
+        for line in lines:
+            line = line.strip()
+            if line and len(line) < 50:  # Reasonable length for category
+                # Check if line should be excluded
+                if not any(re.match(pattern, line.lower()) for pattern in exclude_patterns):
+                    potential_categories.append(line)
+        
+        # If we got a reasonable number of categories this way
+        if 3 <= len(potential_categories) <= 20:
+            return potential_categories
+        
+        return categories
+
     def classify_single(self, text: str, categories: List[str], question_context: str = "") -> str:
-        """Classify a single text"""
+        """Classify a single text with error handling"""
         prompt = (
             "You are a survey response classifier.\n"
             f"Survey question: {question_context}\n\n"
@@ -448,30 +828,112 @@ class TextClassifier:
             f"Choose the best category among:\n{', '.join(categories)}\n\n"
             "Return the category name only."
         )
-        reply = self.send_chat([{"role": "system", "content": prompt}])
-        return reply["message"]["content"].strip()
-    
+        
+        try:
+            reply = self.send_chat([{"role": "system", "content": prompt}])
+            response = reply["message"]["content"].strip()
+            
+            # Validate response is in categories
+            if response not in categories:
+                # Try case-insensitive match
+                for cat in categories:
+                    if cat.lower() == response.lower():
+                        return cat
+                
+                # Try regex matching - check if response is contained in exactly one category
+                response_lower = response.lower()
+                matches = []
+                
+                for cat in categories:
+                    if response_lower in cat.lower():
+                        matches.append(cat)
+                
+                if len(matches) == 1:
+                    # Found in exactly one category
+                    print(f"Warning: LLM returned '{response}' - matched to category '{matches[0]}' via substring match.")
+                    return matches[0]
+                else:
+                    # Not found or found in multiple categories
+                    if len(matches) > 1:
+                        print(f"Warning: LLM returned '{response}' which matches multiple categories: {matches}. Returning 'Uncategorized'.")
+                    else:
+                        print(f"Warning: LLM returned '{response}' which doesn't match any category. Returning 'Uncategorized'.")
+                    return "Uncategorized"
+            
+            return response
+            
+        except Exception as e:
+            print(f"Error in classify_single: {e}")
+            # Return a default category or raise depending on your needs
+            return "Classification Error"    
+
     def classify_single_multiclass(self, text: str, categories: List[str], question_context: str = "") -> Dict[str, str]:
-        """Classify a single text into multiple categories"""
+        """Classify a single text into multiple categories with robust parsing"""
         category_list = "\n".join(f"{i+1}. {cat}" for i, cat in enumerate(categories))
-        prompt = (
-            f"You are a survey response classifier.\n"
-            f"Survey question: {question_context}\n\n"
-            f"Response:\n\"{text}\"\n\n"
-            f"For each of the following categories, indicate if the response applies.\n\n"
-            f"Categories:\n{category_list}\n\n"
-            f"Reply with exactly {len(categories)} answers (\"yes\" or \"no\") separated by commas."
-        )
         
-        reply = self.send_chat([{"role": "system", "content": prompt}])
-        answer = reply["message"]["content"].strip().lower()
-        responses = [resp.strip() for resp in answer.split(",")]
+        # More explicit prompt format
+        prompt = f"""You are a survey response classifier.
+Survey question: {question_context}
+
+Response: "{text}"
+
+For each category below, indicate if the response applies (yes) or not (no).
+
+Categories:
+{category_list}
+
+IMPORTANT: Reply with EXACTLY {len(categories)} answers in this format:
+1. yes/no
+2. yes/no
+3. yes/no
+(etc.)
+
+Each line must start with a number followed by a period, then yes or no."""
         
-        result = {}
-        for i, cat in enumerate(categories):
-            result[cat] = "yes" if i < len(responses) and "yes" in responses[i] else "no"
-        return result
-    
+        try:
+            reply = self.send_chat([{"role": "system", "content": prompt}])
+            answer = reply["message"]["content"].strip()
+            
+            # Parse numbered list format
+            result = {}
+            
+            # Try to parse numbered format first (most reliable)
+            numbered_pattern = r'(\d+)\.\s*(yes|no)'
+            matches = re.findall(numbered_pattern, answer.lower())
+            
+            if matches:
+                # Build result from numbered matches
+                match_dict = {int(num): resp for num, resp in matches}
+                for i, cat in enumerate(categories, 1):
+                    if i in match_dict:
+                        result[cat] = match_dict[i]
+                    else:
+                        result[cat] = "no"  # Default to no if missing
+            else:
+                # Fallback: try comma-separated or line-separated yes/no
+                # Remove numbers, punctuation, extra whitespace
+                clean_text = re.sub(r'[0-9\.\:\-\)\(]', ' ', answer.lower())
+                # Find all yes/no occurrences
+                responses = re.findall(r'\b(yes|no)\b', clean_text)
+                
+                for i, cat in enumerate(categories):
+                    if i < len(responses):
+                        result[cat] = responses[i]
+                    else:
+                        result[cat] = "no"
+                        
+            # Validate we have all categories
+            for cat in categories:
+                if cat not in result:
+                    result[cat] = "no"
+                    
+            return result
+            
+        except Exception as e:
+            print(f"Error in classify_single_multiclass: {e}")
+            # Return all "no" as safe default
+            return {cat: "no" for cat in categories}    
+
     def run_classification(
         self,
         df: pd.DataFrame,
@@ -482,19 +944,26 @@ class TextClassifier:
         n_samples: int = 100,
         question_context: str = "",
         category_model: Optional[str] = None,
-        category_backend: Optional[str] = None  # NEW
+        category_backend: Optional[str] = None
     ) -> Tuple[pd.DataFrame, List[str], Dict[str, Any]]:
-        """Run full classification pipeline"""
+        """Run full classification pipeline with error handling"""
+        
         # Generate categories if needed
         if categories is None:
-            cat_classifier = TextClassifier(
-                model_name=category_model or self.model_name,
-                backend=category_backend or self.backend
-            )
-            categories = cat_classifier.generate_categories(
-                df, text_column, n_samples, question_context
-            )
-            print(f"[*] Generated categories: {', '.join(categories)}")
+            try:
+                cat_classifier = TextClassifier(
+                    model_name=category_model or self.model_name,
+                    backend=category_backend or self.backend
+                )
+                categories = cat_classifier.generate_categories(
+                    df, text_column, n_samples, question_context
+                )
+                print(f"[*] Generated categories: {', '.join(categories)}")
+            except Exception as e:
+                print(f"Error generating categories: {e}")
+                # Fallback to generic categories
+                categories = ["Positive", "Negative", "Neutral", "Other"]
+                print(f"[!] Using fallback categories: {', '.join(categories)}")
         else:
             print(f"[*] Using provided categories: {', '.join(categories)}")
         
@@ -502,8 +971,7 @@ class TextClassifier:
         rows = []
         for _, row in tqdm(df.iterrows(), total=len(df), desc="Classifying"):
             txt = row[text_column]
-            if pd.isna(txt):
-                continue
+            # No need to check for empty/NaN - already filtered in api.py
             
             if multiclass:
                 record = {
@@ -553,25 +1021,28 @@ def load_config(config_path: Union[str, Path]) -> Dict[str, Any]:
         config_path: Path to the configuration JSON file
         
     Returns:
-        Configuration dictionary
+        Configuration dictionary with defaults applied
     """
     config_path = Path(config_path)
     if not config_path.exists():
         raise FileNotFoundError(f"Config file not found: {config_path}")
     
     with open(config_path) as f:
-        return json.load(f)
+        user_config = json.load(f)
+    
+    # Apply defaults
+    return get_config_with_defaults(user_config)
 
 
 def validate_config(config: Dict[str, Any]) -> None:
     """
-    Validate that required configuration parameters are present.
+    Validate that required configuration parameters are present and valid.
     
     Args:
         config: Configuration dictionary
         
     Raises:
-        ValueError: If required parameters are missing
+        ValueError: If required parameters are missing or invalid
     """
     required = ["file_path", "text_column", "id_column"]
     missing = [key for key in required if key not in config]
@@ -580,8 +1051,20 @@ def validate_config(config: Dict[str, Any]) -> None:
         raise ValueError(f"Missing required config parameters: {missing}")
     
     # Validate file exists
-    if not Path(config["file_path"]).exists():
-        raise FileNotFoundError(f"Input file not found: {config['file_path']}")
+    file_path = Path(config["file_path"])
+    if not file_path.exists():
+        raise FileNotFoundError(f"Input file not found: {file_path}")
+    
+    # Validate backends
+    valid_backends = {"ollama", "openai"}
+    backend_keys = ["classifier_backend", "category_backend", "judge_backend"]
+    
+    for key in backend_keys:
+        if key in config and config[key] is not None:
+            if config[key] not in valid_backends:
+                raise ValueError(
+                    f"Invalid {key}: '{config[key]}'. Must be one of: {valid_backends}"
+                )
 
 
 def merge_configs(base: Dict[str, Any], override: Dict[str, Any]) -> Dict[str, Any]:
@@ -627,27 +1110,53 @@ def parse_categories(config: Dict[str, Any]) -> Optional[List[str]]:
 # Default configuration values
 DEFAULT_CONFIG = {
     "classifier_model": "gemma3n:latest",
-    "category_model": None,  # Will use classifier_model if not specified
+    "category_model": None,
     "judge_model": "gemma3n:latest",
     "classifier_backend": "ollama",
-    "category_backend": None,  # falls back to classifier_backend
+    "category_backend": None,
+    "judge_backend": None,  # ADD THIS LINE - it was missing!
     "multiclass": False,
     "n_samples": 100,
     "question_context": "",
-    "validation_samples": None  # Validate all by default
+    "validation_samples": None,
+    # Error handling options
+    "max_retries": 3,
+    "retry_delay": 1,
+    "error_category": "Classification Error",
+    "fallback_categories": ["Positive", "Negative", "Neutral", "Other"]
 }
 
 
 def get_config_with_defaults(config: Dict[str, Any]) -> Dict[str, Any]:
-    config = merge_configs(DEFAULT_CONFIG, config)
+    """
+    Apply default values to configuration.
     
-    # For backward compatibility
-    if "classifier_backend" not in config:
-        config["classifier_backend"] = config["backend"]
-    if "category_backend" not in config:
-        config["category_backend"] = config["classifier_backend"]
+    Args:
+        config: User-provided configuration
+        
+    Returns:
+        Configuration with defaults applied
+    """
+    # Start with defaults
+    result = DEFAULT_CONFIG.copy()
     
-    return config
+    # Override with user config
+    result.update(config)
+    
+    # Apply cascading defaults for backend settings
+    # If category_backend not specified, use classifier_backend
+    if result.get("category_backend") is None:
+        result["category_backend"] = result["classifier_backend"]
+    
+    # If judge_backend not specified, use classifier_backend
+    if result.get("judge_backend") is None:
+        result["judge_backend"] = result["classifier_backend"]
+    
+    # If category_model not specified, use classifier_model
+    if result.get("category_model") is None:
+        result["category_model"] = result["classifier_model"]
+    
+    return result
 
 # ===== models.py =====
 # text_classifier/models.py
@@ -704,9 +1213,12 @@ class ValidationRun:
 # text_classifier/storage.py
 import json
 from pathlib import Path
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, TYPE_CHECKING
 import pandas as pd
 from datetime import datetime
+
+if TYPE_CHECKING:
+    from .models import ClassificationRun
 
 
 class RunStorage:
@@ -752,7 +1264,7 @@ class RunStorage:
         """Retrieve classification run metadata"""
         if run_id in self.metadata["classification_runs"]:
             data = self.metadata["classification_runs"][run_id]
-            # Import here to avoid circular import
+            # Import at runtime
             from .models import ClassificationRun
             return ClassificationRun(
                 run_id=data['run_id'],
@@ -782,6 +1294,7 @@ class RunStorage:
 from typing import Dict, Any, Optional, List, Tuple
 import pandas as pd
 from tqdm import tqdm
+import re
 
 from .classifier import TextClassifier
 
@@ -791,79 +1304,266 @@ class ClassificationValidator:
     
     def __init__(self, model_name: str, backend: str = "ollama"):
         self.classifier = TextClassifier(model_name, backend)
+
+    def validate_single_multiclass(
+        self, 
+        text: str, 
+        predictions: Dict[str, str], 
+        categories: List[str]
+    ) -> Tuple[Dict[str, int], str]:
+        """Validate multiclass predictions for a single text"""
+        
+        # Build the predictions summary
+        pred_summary = "\n".join([
+            f"- {cat}: {predictions.get(cat, 'no')}" 
+            for cat in categories
+        ])
+        
+        system_prompt = """You are evaluating multiclass text classifications.
+For each category prediction, rate its accuracy from 1-5.
+Format your response as:
+Category scores:
+- [Category name]: [1-5] - [brief reason]
+Overall: [1-5] - [overall assessment]"""
+        
+        user_prompt = f"""Original text: "{text}"
+
+Predictions:
+{pred_summary}
+
+For each category, evaluate if the yes/no prediction is accurate.
+Consider:
+1. Does a "yes" prediction correctly identify that the text relates to this category?
+2. Does a "no" prediction correctly identify that the text does NOT relate to this category?
+3. Are there any missed categories (should be "yes" but marked "no")?
+4. Are there any false positives (marked "yes" but shouldn't be)?
+
+Rate each category prediction 1-5 where:
+1 = completely wrong
+3 = partially correct  
+5 = perfectly accurate"""
+        
+        try:
+            result = self.classifier.send_chat([
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt}
+            ])['message']['content']
+            
+            # Parse individual category scores
+            scores = self._parse_multiclass_scores(result, categories)
+            
+            return scores, result
+            
+        except Exception as e:
+            print(f"Error in validate_single_multiclass: {e}")
+            # Return middle scores as default
+            return {cat: 3 for cat in categories}, f"Validation error: {str(e)}"
     
+    def _parse_multiclass_scores(self, text: str, categories: List[str]) -> Dict[str, int]:
+        """Parse scores for each category from validation response"""
+        import re
+        
+        scores = {}
+        
+        # Try to find scores for each category
+        for cat in categories:
+            # Look for patterns like "CategoryName: 4" or "CategoryName: 4/5"
+            # Make pattern flexible to handle variations
+            escaped_cat = re.escape(cat)
+            patterns = [
+                rf'{escaped_cat}\s*:\s*(\d)',  # Category: 4
+                rf'{escaped_cat}.*?:\s*(\d)',   # Category blah blah: 4
+                rf'{escaped_cat}.*?(\d)\s*/',   # Category 4/5
+                rf'{escaped_cat}.*?(\d)\s*out', # Category 4 out of 5
+            ]
+            
+            for pattern in patterns:
+                match = re.search(pattern, text, re.IGNORECASE)
+                if match:
+                    score = int(match.group(1))
+                    if 1 <= score <= 5:
+                        scores[cat] = score
+                        break
+            
+            # Default to 3 if not found
+            if cat not in scores:
+                scores[cat] = 3
+                
+        # Try to find overall score
+        overall_patterns = [
+            r'[Oo]verall\s*:\s*(\d)',
+            r'[Oo]verall.*?(\d)\s*/',
+            r'[Aa]verage\s*:\s*(\d)',
+        ]
+        
+        for pattern in overall_patterns:
+            match = re.search(pattern, text)
+            if match:
+                score = int(match.group(1))
+                if 1 <= score <= 5:
+                    scores['_overall'] = score
+                    break
+                    
+        return scores
+
     def validate_single(
         self, 
         text: str, 
         predicted_category: str, 
         categories: List[str]
     ) -> Tuple[int, str]:
-        """Validate a single classification"""
+        """Validate a single classification with robust score parsing"""
         categories_str = ", ".join(sorted(categories))
         
-        system_prompt = "You are evaluating text classifications. Rate classification quality (1-5) and explain whether you agree."
+        system_prompt = """You are evaluating text classifications. 
+Rate classification quality from 1 to 5 and explain.
+Format your response as:
+Score: [number]
+Explanation: [your explanation]"""
         
-        user_prompt = f"""For this text, I'll show you:
-1. The original text
-2. The predicted category
-3. Available categories
-
-Original text: \"{text}\"
+        user_prompt = f"""Original text: \"{text}\"
 Predicted category: \"{predicted_category}\"
 Available categories: {categories_str}
 
-Evaluate both the predicted category *and* the quality of the category scheme itself.
-- If the categories are vague, overlapping, or poorly defined, give a low score.
-- If the categories are meaningful and the prediction fits well, give a high score.
+Rate overall classification quality from 1 (very poor) to 5 (excellent)."""
+        
+        try:
+            result = self.classifier.send_chat([
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt}
+            ])['message']['content']
+            
+            # More robust score parsing
+            score = self._parse_score(result)
+            
+            if score is None:
+                print(f"Warning: Could not parse score from: {result[:100]}...")
+                score = 3  # Default middle score
+                
+            return score, result
+            
+        except Exception as e:
+            print(f"Error in validate_single: {e}")
+            return 3, f"Validation error: {str(e)}"
 
-Rate overall classification quality from 1 (very poor) to 5 (excellent) and explain in one sentence.
-"""
+    def _parse_score(self, text: str) -> Optional[int]:
+        """Parse score from text with multiple strategies"""
+        # Strategy 1: Look for "Score: X" pattern
+        score_match = re.search(r'[Ss]core\s*:\s*(\d)', text)
+        if score_match:
+            score = int(score_match.group(1))
+            if 1 <= score <= 5:
+                return score
         
-        result = self.classifier.send_chat([
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_prompt}
-        ])['message']['content']
+        # Strategy 2: Look for "X/5" or "X out of 5" pattern
+        out_of_five = re.search(r'(\d)\s*(?:/|out of)\s*5', text)
+        if out_of_five:
+            score = int(out_of_five.group(1))
+            if 1 <= score <= 5:
+                return score
         
-        # Parse score
-        lines = result.strip().split('\n')
-        score_line = next((l for l in lines if any(ch.isdigit() for ch in l)), None)
-        score = int(next((ch for ch in score_line if ch.isdigit()), '0')) if score_line else None
+        # Strategy 3: Find first standalone digit 1-5
+        for match in re.finditer(r'\b([1-5])\b', text):
+            return int(match.group(1))
         
-        return score, result
-    
+        # Strategy 4: Look for written numbers
+        word_to_num = {'one': 1, 'two': 2, 'three': 3, 'four': 4, 'five': 5}
+        for word, num in word_to_num.items():
+            if word in text.lower():
+                return num
+        
+        return None
+
     def validate_classification_run(
         self,
         df: pd.DataFrame,
         text_column: str,
-        category_column: str,
-        categories: List[str],
-        sample_size: Optional[int] = None
+        category_column: Optional[str] = None,  # Make optional for multiclass
+        categories: List[str] = None,
+        sample_size: Optional[int] = None,
+        multiclass: bool = None  # Auto-detect if not specified
     ) -> Tuple[pd.DataFrame, Dict[str, Any]]:
-        """Validate a classification run"""
+        """Validate a classification run (both single and multiclass)"""
+        
+        # Auto-detect multiclass if not specified
+        if multiclass is None:
+            # Check if we have category columns (multiclass) or a single category column
+            multiclass = all(cat in df.columns for cat in categories) if categories else False
+        
         # Sample if requested
         if sample_size and sample_size < len(df):
             df = df.sample(n=sample_size, random_state=42).reset_index(drop=True)
         
-        # Validate each row
+        # Prepare results dataframe
         results_df = df.copy()
-        results_df['quality_score'] = None
-        results_df['explanation'] = None
         
-        for idx, row in tqdm(df.iterrows(), total=len(df), desc="Validating"):
-            score, explanation = self.validate_single(
-                row[text_column],
-                row[category_column],
-                categories
-            )
-            results_df.at[idx, 'quality_score'] = score
-            results_df.at[idx, 'explanation'] = explanation
+        if multiclass:
+            # Multiclass validation
+            results_df['quality_scores'] = None
+            results_df['explanation'] = None
+            results_df['average_score'] = None
+            
+            for idx, row in tqdm(df.iterrows(), total=len(df), desc="Validating multiclass"):
+                # Get predictions for this row
+                predictions = {cat: row.get(cat, 'no') for cat in categories}
+                
+                scores, explanation = self.validate_single_multiclass(
+                    row[text_column],
+                    predictions,
+                    categories
+                )
+                
+                # Store results
+                results_df.at[idx, 'quality_scores'] = scores
+                results_df.at[idx, 'explanation'] = explanation
+                
+                # Calculate average score for this row
+                cat_scores = [s for c, s in scores.items() if c != '_overall']
+                avg_score = sum(cat_scores) / len(cat_scores) if cat_scores else 3
+                results_df.at[idx, 'average_score'] = avg_score
+                
+        else:
+            # Single category validation (existing code)
+            results_df['quality_score'] = None
+            results_df['explanation'] = None
+            
+            for idx, row in tqdm(df.iterrows(), total=len(df), desc="Validating"):
+                score, explanation = self.validate_single(
+                    row[text_column],
+                    row[category_column],
+                    categories
+                )
+                results_df.at[idx, 'quality_score'] = score
+                results_df.at[idx, 'explanation'] = explanation
         
         # Calculate metrics
-        metrics = {
-            "total_validated": len(results_df),
-            "average_score": results_df['quality_score'].astype(float).mean(),
-            "score_distribution": results_df['quality_score'].value_counts().to_dict()
-        }
+        if multiclass:
+            metrics = {
+                "total_validated": len(results_df),
+                "multiclass": True,
+                "average_score": results_df['average_score'].mean(),
+                "score_distribution": results_df['average_score'].value_counts().to_dict()
+            }
+            
+            # Add per-category average scores
+            category_scores = {}
+            for cat in categories:
+                cat_scores = [
+                    scores.get(cat, 3) 
+                    for scores in results_df['quality_scores'] 
+                    if scores and cat in scores
+                ]
+                if cat_scores:
+                    category_scores[cat] = sum(cat_scores) / len(cat_scores)
+            metrics["category_scores"] = category_scores
+            
+        else:
+            metrics = {
+                "total_validated": len(results_df),
+                "multiclass": False,
+                "average_score": results_df['quality_score'].astype(float).mean(),
+                "score_distribution": results_df['quality_score'].value_counts().to_dict()
+            }
         
         return results_df, metrics
 

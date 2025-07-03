@@ -57,16 +57,16 @@ Final
 12. **Foreign Policy, Defence & International Relations**
 
 categories = [
-    "Economy, Jobs & Inflation (taxes, fiscal policy, cost of living)",
-    "Healthcare & Senior Care (hospitals, pharmacare, long-term care)",
-    "Climate Change & Environment (carbon policy, conservation)",
+    "Economy, Jobs & Inflation",
+    "Healthcare & Senior Care",
+    "Climate Change & Environment",
     "COVID-19 Pandemic Response & Preparedness",
     "Housing Affordability & Homelessness",
     "Indigenous Peoples & Reconciliation",
     "Government Leadership, Ethics & Accountability",
     "National Unity, Quebec & Regional Issues",
-    "Law, Order & Public Safety (crime, policing, gun control)",
-    "Social Programs, Education & Childcare (EI, daycare, tuition)",
+    "Law, Order & Public Safety",
+    "Social Programs, Education & Childcare",
     "Immigration & Multiculturalism",
     "Foreign Policy, Defence & International Relations"
 ]
