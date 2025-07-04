@@ -23,9 +23,6 @@ from .config import (
     parse_categories
 )
 
-
-
-
 def classify_texts(
     config: Dict[str, Any],
     run_id: Optional[str] = None,
@@ -33,59 +30,32 @@ def classify_texts(
 ) -> str:
     """
     Run text classification with proper storage.
-    
-    Args:
-        config: Configuration dictionary with keys:
-            - file_path: Path to input CSV
-            - text_column: Column containing text
-            - id_column: Column with unique IDs
-            - categories: Optional list/string of categories
-            - classifier_model: Model name (default: "gemma3n:latest")
-            - classifier_backend: "ollama" or "openai" (default: "ollama")
-            - category_backend: Backend for category generation (default: same as classifier_backend)
-            - multiclass: Enable multi-label (default: False)
-            - n_samples: Samples for category generation (default: 100)
-            - question_context: Context for category generation
-            - category_model: Model for generating categories
-        run_id: Optional run ID (auto-generated if None)
-        storage_dir: Directory to store runs
-        
-    Returns:
-        run_id: Unique identifier for this classification run
     """
-    # Apply defaults and validate
     config = get_config_with_defaults(config)
     validate_config(config)
     
-    # Generate run ID if not provided
     if run_id is None:
         run_id = datetime.now().strftime("%Y%m%d_%H%M%S") + "_" + str(uuid.uuid4())[:8]
     
-    # Initialize storage
     storage = RunStorage(storage_dir)
     
-    # Load data
     df = pd.read_csv(config["file_path"],keep_default_na=False)
 
-    # Drop rows where text column is empty or has less than 1 character
     original_count = len(df)
     df = df[df[config["text_column"]].str.len() >= 1]
+    df = df.reset_index(drop=True) # Reset index here as well for consistency
     dropped_count = original_count - len(df)
     
     if dropped_count > 0:
         print(f"[*] Dropped {dropped_count} rows with empty text")
 
-
-    # Parse categories from config
     categories = parse_categories(config)
     
-    # Initialize classifier
     classifier = TextClassifier(
         config["classifier_model"],
         config["classifier_backend"]
     )
     
-    # Run classification
     classified_df, final_categories, metrics = classifier.run_classification(
         df=df,
         text_column=config["text_column"],
@@ -98,11 +68,9 @@ def classify_texts(
         category_backend=config["category_backend"]
     )
 
-    # Add dropped count to metrics
     metrics["dropped_empty_rows"] = dropped_count
     metrics["original_rows"] = original_count    
     
-    # Create run record
     run = ClassificationRun(
         run_id=run_id,
         timestamp=datetime.now(),
@@ -112,13 +80,11 @@ def classify_texts(
         metrics=metrics
     )
     
-    # Save results
     output_file = storage.save_classification_run(run, classified_df)
     print(f"[*] Classification complete. Run ID: {run_id}")
     print(f"[*] Results saved to: {output_file}")
     
     return run_id
-
 
 def validate_classification(
     classification_run_id: str,
@@ -537,36 +503,20 @@ def classify_texts_hybrid(
 ) -> str:
     """
     Run text classification using hybrid LLM + SetFit approach.
-    
-    Args:
-        config: Standard configuration dictionary plus:
-            - use_setfit: Enable SetFit hybrid mode (default: True)
-            - setfit_model: SetFit model name (default: "sentence-transformers/paraphrase-mpnet-base-v2")
-            - confidence_threshold: Threshold for using SetFit vs LLM (default: 0.85)
-            - max_llm_samples: Max samples to classify with LLM for training (default: 200)
-            - min_samples_per_category: Min samples needed per category (default: 10)
-        run_id: Optional run ID (auto-generated if None)
-        storage_dir: Directory to store runs
-        train_config: Optional config for SetFit training:
-            - num_epochs: Training epochs (default: 1)
-            - batch_size: Training batch size (default: 16)
-            - validation_split: Validation split ratio (default: 0.2)
-        
-    Returns:
-        run_id: Unique identifier for this classification run
+    Supports both single-label and multi-label classification.
     """
     if not SETFIT_AVAILABLE:
         raise ImportError("SetFit not available. Run: pip install setfit sentence-transformers")
     
-    # Apply defaults and validate
     config = get_config_with_defaults(config)
     validate_config(config)
     
-    # SetFit specific defaults
+    is_multiclass = config.get("multiclass", False)
+    
     setfit_defaults = {
         "use_setfit": True,
         "setfit_model": "sentence-transformers/paraphrase-mpnet-base-v2",
-        "confidence_threshold": 0.85,
+        "confidence_threshold": 0.5,
         "max_llm_samples": 200,
         "min_samples_per_category": 10
     }
@@ -575,50 +525,43 @@ def classify_texts_hybrid(
         if key not in config:
             config[key] = value
     
-    # Generate run ID if not provided
     if run_id is None:
         run_id = datetime.now().strftime("%Y%m%d_%H%M%S") + "_" + str(uuid.uuid4())[:8]
     
-    # Initialize storage
     storage = RunStorage(storage_dir)
     run_dir = storage.base_dir / f"classification_{run_id}"
     run_dir.mkdir(exist_ok=True)
     
-    # Load and clean data
     df = pd.read_csv(config["file_path"], keep_default_na=False)
     original_count = len(df)
     df = df[df[config["text_column"]].str.len() >= 1]
+    
+    # *** THE FIX IS HERE ***
+    # Reset the index after filtering to ensure it's a clean, sequential 0, 1, 2...
+    df = df.reset_index(drop=True)
+    
     dropped_count = original_count - len(df)
     
     if dropped_count > 0:
         print(f"[*] Dropped {dropped_count} rows with empty text")
     
-    # Parse categories
     categories = parse_categories(config)
     
-    # Initialize LLM classifier
     llm_classifier = TextClassifier(
         config["classifier_model"],
         config["classifier_backend"]
     )
     
-    # Generate categories if needed
     if categories is None:
         cat_classifier = TextClassifier(
             model_name=config.get("category_model") or config["classifier_model"],
             backend=config.get("category_backend") or config["classifier_backend"]
         )
         categories = cat_classifier.generate_categories(
-            df, 
-            config["text_column"], 
-            config["n_samples"], 
-            config["question_context"]
+            df, config["text_column"], config["n_samples"], config["question_context"]
         )
         print(f"[*] Generated categories: {', '.join(categories)}")
-    else:
-        print(f"[*] Using provided categories: {', '.join(categories)}")
     
-    # Initialize hybrid classifier
     hybrid = HybridClassifier(
         llm_classifier,
         config["setfit_model"],
@@ -627,42 +570,34 @@ def classify_texts_hybrid(
         config["max_llm_samples"]
     )
     
-    # Collect training data
     print("\n=== Phase 1: Collecting training data with LLM ===")
     training_df, training_metrics = hybrid.collect_training_data(
-        df.sample(frac=1, random_state=42),  # Shuffle for better sampling
+        df.sample(frac=1, random_state=42),
         config["text_column"],
         config["id_column"],
         categories,
-        config["question_context"]
+        config["question_context"],
+        multiclass=is_multiclass
     )
     
-    # Save training data
     training_file = run_dir / "training_data.csv"
     training_df.to_csv(training_file, index=False)
     
-    # Train SetFit
     print("\n=== Phase 2: Training SetFit model ===")
-    train_cfg = train_config or {}
-    setfit_metrics = hybrid.train_setfit(
-        validation_split=train_cfg.get("validation_split", 0.2)
-    )
+    setfit_metrics = hybrid.train_setfit(multiclass=is_multiclass)
     
-    # Save SetFit model
     setfit_dir = run_dir / "setfit_model"
     hybrid.setfit.save(setfit_dir)
     
-    # Classify all data
     print("\n=== Phase 3: Hybrid classification ===")
     classified_df, classification_metrics = hybrid.classify_hybrid(
         df,
         config["text_column"],
         config["id_column"],
         config["question_context"],
-        use_active_learning=True
+        multiclass=is_multiclass
     )
     
-    # Combine all metrics
     metrics = {
         "total_rows": len(df),
         "dropped_empty_rows": dropped_count,
@@ -674,7 +609,6 @@ def classify_texts_hybrid(
         "num_categories": len(categories)
     }
     
-    # Create run record
     run = ClassificationRun(
         run_id=run_id,
         timestamp=datetime.now(),
@@ -684,7 +618,6 @@ def classify_texts_hybrid(
         metrics=metrics
     )
     
-    # Save results
     output_file = storage.save_classification_run(run, classified_df)
     
     print(f"\n[*] Hybrid classification complete. Run ID: {run_id}")
@@ -692,7 +625,6 @@ def classify_texts_hybrid(
     print(f"[*] LLM used for: {classification_metrics['llm_percentage']:.1f}% of classifications")
     
     return run_id
-
 
 def load_setfit_model(
     run_id: str,

@@ -2,6 +2,23 @@
 
 A flexible system for classifying open-text survey responses using LLMs, with built-in validation and experiment tracking.
 
+## Overview
+
+This system helps you:
+- **Categorize open-ended survey responses** automatically using LLMs
+- **Compare different models** to find the best approach for your data
+- **Validate results** to ensure classification quality
+- **Save costs** with hybrid LLM/SetFit classification
+
+Perfect for: survey analysis, customer feedback categorization, political opinion mining, support ticket classification, and any open-text categorization task.
+
+## Prerequisites
+
+- Python 3.8+
+- Ollama installed locally (for local models)
+- OpenAI API key (for GPT models)
+- 16GB RAM for Ollama to actually work
+
 ## Features
 
 - **Multiple LLM backends**: Support for Ollama and OpenAI models
@@ -17,11 +34,11 @@ A flexible system for classifying open-text survey responses using LLMs, with bu
 
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/text-classifier.git
-cd text-classifier
+git clone https://github.com/justinsavoie/open-text-coder.git
+cd open-text-coder
 
 # Install dependencies
-pip install pandas tqdm ollama openai
+pip install -r requirements.txt
 
 # For OpenAI support, set your API key
 export OPENAI_API_KEY="your-api-key-here"
@@ -34,6 +51,7 @@ text_classifier/
 ├── __init__.py          # Package initialization and exports
 ├── api.py               # High-level API functions
 ├── classifier.py        # Core classification logic
+├── setfit_classifier.py # Classification using SetFit
 ├── validator.py         # Classification validation using LLM-as-judge
 ├── config.py            # Configuration management
 ├── models.py            # Data models for runs and validations
@@ -54,9 +72,11 @@ from text_classifier import classify_texts
 
 # Minimal configuration - let the system figure out categories
 config = {
-    "file_path": "survey_responses.csv",
-    "text_column": "response",
-    "id_column": "respondent_id"
+    "file_path": "data/data-cps21-10.csv",
+    "text_column": "cps21_imp_iss",
+    "id_column": "cps21_ResponseId",
+    "question_context": "What is the most important issue to you personally in this federal election? (answer in English or French)",
+    "n_samples": 10
 }
 
 # Run classification
@@ -67,13 +87,24 @@ print(f"Classification complete! Run ID: {run_id}")
 ### 2. Classification with Predefined Categories
 
 ```python
-# Use your own categories
+# Use your own categories - of course these one are non-sensical
+# Will still code non-sensically
 config = {
-    "file_path": "support_tickets.csv",
-    "text_column": "ticket_text",
-    "id_column": "ticket_id",
+    "file_path": "data/data-cps21-10.csv",
+    "text_column": "cps21_imp_iss",
+    "id_column": "cps21_ResponseId",
     "categories": ["Technical Issue", "Billing", "Feature Request", "Other"],
     "question_context": "Customer support ticket"
+}
+
+run_id = classify_texts(config)
+
+config = {
+    "file_path": "data/data-cps21-10.csv",
+    "text_column": "cps21_imp_iss",
+    "id_column": "cps21_ResponseId",
+    "categories": ["Environment", "Health", "Economy", "Culture and multiculturalism","Other"],
+    "question_context": "What is the most important issue to you personally in this federal election? (answer in English or French)",
 }
 
 run_id = classify_texts(config)
@@ -84,12 +115,12 @@ run_id = classify_texts(config)
 ```python
 # Each response can belong to multiple categories
 config = {
-    "file_path": "product_reviews.csv",
-    "text_column": "review_text",
-    "id_column": "review_id",
+    "file_path": "data/data-cps21-10.csv",
+    "text_column": "cps21_imp_iss",
+    "id_column": "cps21_ResponseId",
     "multiclass": True,
-    "categories": ["Quality Issues", "Shipping Problems", "Good Value", "Easy to Use"],
-    "question_context": "Product review"
+    "categories": ["Environment", "Health", "Economy", "Culture and multiculturalism","Other"],
+    "question_context": "What is the most important issue to you personally in this federal election? (answer in English or French)",
 }
 
 run_id = classify_texts(config)
@@ -97,8 +128,6 @@ run_id = classify_texts(config)
 # Load results
 from text_classifier import load_classification_results
 results = load_classification_results(run_id)
-# Results will have columns: review_id, review_text, Quality Issues, Shipping Problems, etc.
-# Each category column contains "yes" or "no"
 ```
 
 ### 4. Generate Categories Without Classification
@@ -108,10 +137,11 @@ from text_classifier import generate_categories_only
 
 # Explore what categories the LLM finds in your data
 config = {
-    "file_path": "survey.csv",
-    "text_column": "comments",
-    "n_samples": 200,  # Use 200 samples to generate categories
-    "question_context": "What features would you like to see in our app?"
+    "file_path": "data/data-cps21-10.csv",
+    "text_column": "cps21_imp_iss",
+    "id_column": "cps21_ResponseId",
+    "n_samples": 10,  # Use 10 samples to generate categories
+    "question_context": "What is the most important issue to you personally in this federal election? (answer in English or French)",
 }
 
 categories = generate_categories_only(config)
@@ -119,18 +149,28 @@ print("Discovered categories:", categories)
 
 # Load saved categories later
 from text_classifier import load_saved_categories
-categories, metadata = load_saved_categories("./runs/categories_20231230_143022.json")
+categories, metadata = load_saved_categories("runs/categories_20250703_224833.json")
 ```
 
 ### 5. Validate Classification Quality
 
 ```python
+config = {
+    "file_path": "data/data-cps21-10.csv",
+    "text_column": "cps21_imp_iss",
+    "id_column": "cps21_ResponseId",
+    "n_samples": 10,  # Use 10 samples to generate categories
+    "judge_model": "gpt-4o",
+    "judge_backend": "openai",
+}
+
 from text_classifier import validate_classification
 
 # Validate a previous classification run
 validation_id = validate_classification(
-    classification_run_id=run_id,
-    sample_size=50  # Validate 50 random samples
+    classification_run_id='20250702_220000_f9bee455',
+    sample_size=10,
+    config=config,
 )
 
 # Load validation results
@@ -142,17 +182,15 @@ print(f"Average quality score: {val_results['quality_score'].mean():.2f}/5.0")
 ### 6. Using Different Models
 
 ```python
-# Use GPT-4 for category generation, GPT-3.5 for classification
 config = {
-    "file_path": "data.csv",
-    "text_column": "text",
-    "id_column": "id",
-    "category_model": "gpt-4",
+    "file_path": "data/data-cps21-10.csv",
+    "text_column": "cps21_imp_iss",
+    "id_column": "cps21_ResponseId",
+    "n_samples": 10,
+    "category_model": "gpt-4o",
     "category_backend": "openai",
-    "classifier_model": "gpt-3.5-turbo",
-    "classifier_backend": "openai",
-    "judge_model": "gpt-4",  # For validation
-    "judge_backend": "openai"
+    "classifier_model": "gemma3n:latest",
+    "classifier_backend": "ollama"
 }
 
 run_id = classify_texts(config)
@@ -170,8 +208,8 @@ for run in runs[:5]:  # Show last 5 runs
 
 # Compare specific runs
 comparison = compare_runs([
-    "20231230_143022_abc123",
-    "20231230_150000_def456"
+    "20250703_225707_9b61aa81",
+    "20250703_224627_db64ffea"
 ])
 ```
 
@@ -204,30 +242,31 @@ run_id = classify_texts(config)
 from text_classifier import classify_texts_hybrid
 
 config = {
-    "file_path": "survey_responses.csv",
-    "text_column": "response",
-    "id_column": "id",
-    "question_context": "What do you think about our product?",
-    # SetFit specific
-    "max_llm_samples": 300,  # Use LLM for up to 300 training samples
+    "file_path": "data/data-cps21-40.csv",
+    "text_column": "cps21_imp_iss",
+    "id_column": "cps21_ResponseId",
+    "question_context": "What is the most important issue to you personally in this federal election? (answer in English or French)",
+    "max_llm_samples": 30,  # Use LLM for up to 300 training samples
     "confidence_threshold": 0.9,  # High confidence required for SetFit
+    "categories": [
+    "Economy, Jobs & Inflation",
+    "Healthcare & Senior Care",
+    "Climate Change & Environment",
+    "COVID-19 Pandemic Response & Preparedness",
+    "Housing Affordability & Homelessness",
+    "Indigenous Peoples & Reconciliation",
+    "Government Leadership, Ethics & Accountability",
+    "National Unity, Quebec & Regional Issues",
+    "Law, Order & Public Safety",
+    "Social Programs, Education & Childcare",
+    "Immigration & Multiculturalism",
+    "Foreign Policy, Defence & International Relations",
+    "No Opinion / Uncertain"]
 }
 
 run_id = classify_texts_hybrid(config)
 
-# Example 2: With predefined categories
-config = {
-    "file_path": "large_dataset.csv",
-    "text_column": "feedback",
-    "id_column": "id",
-    "categories": ["Positive", "Negative", "Neutral", "Feature Request", "Bug Report"],
-    "max_llm_samples": 500,  # More training data for 5 categories
-    "min_samples_per_category": 20,  # Ensure good coverage
-}
-
-run_id = classify_texts_hybrid(config)
-
-# Example 3: Load and reuse trained model
+# Example 2: Load and reuse trained model
 from text_classifier import load_setfit_model, load_classification_results
 
 # Load the trained model
@@ -239,13 +278,78 @@ predictions = setfit_model.predict_batch(new_texts, return_proba=True)
 for text, (category, confidence) in zip(new_texts, predictions):
     print(f"{text} -> {category} (confidence: {confidence:.2f})")
 
-# Example 4: Check which samples used LLM vs SetFit
+# Example 3: Check which samples used LLM vs SetFit
 results = load_classification_results(run_id)
 print("Classification sources:")
 print(results['source'].value_counts())
 print("\nLow confidence samples that used LLM:")
 low_conf = results[results['source'] == 'llm']
-print(low_conf[['text', 'category', 'confidence']].head())
+print(low_conf.head())
+high_conf = results[results['source'] == 'setfit']
+print(high_conf.head())
+```
+
+### 10. End-to-End Hybrid Workflow
+
+This example demonstrates a complete workflow: automatically discovering categories with a powerful LLM, using those categories to train a cost-effective SetFit hybrid model, and finally evaluating the trained model's performance against a golden test set.
+
+```python
+from text_classifier import generate_categories_only, classify_texts_hybrid
+# The evaluation script needs to be in a location Python can find
+# e.g., in a 'scripts' folder at the root of your project.
+from scripts.evaluate_model import run_evaluation
+
+# --- Step 1: Define base configuration and generate categories ---
+# Use a powerful model like GPT-4o to discover the best categories from a sample of data.
+print("--- Step 1: Generating Categories ---")
+category_gen_config = {
+    "file_path": "data/data-cps21-250.csv", # A dataset for discovery
+    "text_column": "cps21_imp_iss",
+    "id_column": "cps21_ResponseId",
+    "question_context": "What is the most important issue to you personally in this federal election?",
+    "n_samples": 100, # Use 100 samples for robust category generation
+    "category_model": "gpt-4o",
+    "category_backend": "openai"
+}
+discovered_categories = generate_categories_only(category_gen_config, save_to_file=False)
+print(f"Discovered Categories: {discovered_categories}\n")
+
+
+# --- Step 2: Run the full hybrid classification using the discovered categories ---
+# Now, use the discovered categories to train a hybrid model on the full dataset.
+print("--- Step 2: Running Hybrid Classification ---")
+hybrid_run_config = {
+    "file_path": "data/data-cps21.csv", # The full dataset for classification
+    "text_column": "cps21_imp_iss",
+    "id_column": "cps21_ResponseId",
+    "question_context": "What is the most important issue to you personally in this federal election?",
+    "categories": discovered_categories, # Use the categories from Step 1
+    "max_llm_samples": 200, # Use 200 LLM-labeled samples to train SetFit
+    "multiclass": False # Explicitly a single-label classification
+}
+
+# Train the hybrid model and classify the full dataset
+run_id = classify_texts_hybrid(hybrid_run_config)
+print(f"\nHybrid run complete. Run ID: {run_id}\n")
+
+
+# --- Step 3: Evaluate the trained model against a golden test set ---
+# (Note: You must create this golden_test_set_single.csv file manually)
+print("--- Step 3: Evaluating the Trained Model ---")
+if run_id:
+    results_df = run_evaluation(
+        run_id=run_id,
+        test_file="data/golden_test_set_single.csv",
+        text_column="cps21_imp_iss",
+        label_column="verified_category" # Required for single-label evaluation
+    )
+    
+    if not results_df.empty:
+        correct_predictions = results_df['is_correct'].sum()
+        total_predictions = len(results_df)
+        accuracy = (correct_predictions / total_predictions) * 100
+        print(f"\nEvaluation Accuracy: {accuracy:.2f}% ({correct_predictions}/{total_predictions})")
+
 ```
 
 ## Configuration Options

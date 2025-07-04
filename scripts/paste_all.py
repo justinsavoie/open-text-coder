@@ -3,6 +3,7 @@ files = [
     "__init__.py",
     "api.py",
     "classifier.py",
+    "setfit_classifier.py",
     "config.py",
     "models.py",
     "storage.py",
@@ -11,7 +12,7 @@ files = [
 
 folder = "text_classifier"
 
-with open("all_code.txt", "w") as outfile:
+with open("misc_/all_code.txt", "w") as outfile:
     for fname in files:
         path = f"{folder}/{fname}"
         with open(path) as infile:

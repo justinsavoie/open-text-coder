@@ -242,8 +242,42 @@ Each category should be concise (2-5 words) and clearly distinct from others."""
         
         return categories
 
+    def _disambiguate_category(self, text: str, ambiguous_categories: List[str], question_context: str) -> str:
+        """
+        Makes a second, targeted LLM call to resolve ambiguity between multiple matching categories.
+        """
+        print(f"[*] Ambiguity detected. Asking LLM to choose from: {ambiguous_categories}")
+        
+        prompt = (
+            "You are a classification assistant. Your task is to resolve an ambiguity.\n"
+            f"Survey question: {question_context}\n\n"
+            f"Response:\n\"{text}\"\n\n"
+            "The response could fit into several categories. Choose the single best category from the following list ONLY:\n"
+            f"- {', '.join(ambiguous_categories)}\n\n"
+            "Return the single best category name exactly as it appears in the list."
+        )
+
+        try:
+            reply = self.send_chat([{"role": "system", "content": prompt}])
+            response = reply["message"]["content"].strip()
+            
+            # Final check: The response from the disambiguation call MUST be a perfect match
+            # to one of the ambiguous categories.
+            for cat in ambiguous_categories:
+                if cat.lower() == response.lower():
+                    return cat # Return the original category name with correct casing
+            
+            print(f"[!] Warning: Disambiguation failed. LLM returned '{response}', which is not in the provided list.")
+            return "Uncategorized"
+
+        except Exception as e:
+            print(f"Error during disambiguation call: {e}")
+            return "Uncategorized"
+
     def classify_single(self, text: str, categories: List[str], question_context: str = "") -> str:
-        """Classify a single text with error handling"""
+        """
+        Classify a single text with a robust, multi-step validation and disambiguation process.
+        """
         prompt = (
             "You are a survey response classifier.\n"
             f"Survey question: {question_context}\n\n"
@@ -254,41 +288,34 @@ Each category should be concise (2-5 words) and clearly distinct from others."""
         
         try:
             reply = self.send_chat([{"role": "system", "content": prompt}])
-            response = reply["message"]["content"].strip()
+            response_text = reply["message"]["content"].strip()
+            response_lower = response_text.lower()
+
+            # 1a. Check for a perfect (case-insensitive) match first.
+            perfect_matches = [cat for cat in categories if cat.lower() == response_lower]
+            if perfect_matches:
+                # Return the category with its original casing.
+                return perfect_matches[0]
+
+            # 1b. If no perfect match, check for an unambiguous substring match.
+            substring_matches = [cat for cat in categories if response_lower in cat.lower()]
             
-            # Validate response is in categories
-            if response not in categories:
-                # Try case-insensitive match
-                for cat in categories:
-                    if cat.lower() == response.lower():
-                        return cat
-                
-                # Try regex matching - check if response is contained in exactly one category
-                response_lower = response.lower()
-                matches = []
-                
-                for cat in categories:
-                    if response_lower in cat.lower():
-                        matches.append(cat)
-                
-                if len(matches) == 1:
-                    # Found in exactly one category
-                    print(f"Warning: LLM returned '{response}' - matched to category '{matches[0]}' via substring match.")
-                    return matches[0]
-                else:
-                    # Not found or found in multiple categories
-                    if len(matches) > 1:
-                        print(f"Warning: LLM returned '{response}' which matches multiple categories: {matches}. Returning 'Uncategorized'.")
-                    else:
-                        print(f"Warning: LLM returned '{response}' which doesn't match any category. Returning 'Uncategorized'.")
-                    return "Uncategorized"
-            
-            return response
+            if len(substring_matches) == 1:
+                # Found exactly one unambiguous match.
+                print(f"[*] Info: LLM returned '{response_text}'. Matched to unique category '{substring_matches[0]}' via substring.")
+                return substring_matches[0]
+
+            # 1c. If there is ambiguity (multiple substring matches), make a second LLM call.
+            if len(substring_matches) > 1:
+                return self._disambiguate_category(text, substring_matches, question_context)
+
+            # 1d. If no matches of any kind were found.
+            print(f"[!] Warning: LLM returned '{response_text}', which does not match any category. Returning 'Uncategorized'.")
+            return "Uncategorized"
             
         except Exception as e:
             print(f"Error in classify_single: {e}")
-            # Return a default category or raise depending on your needs
-            return "Classification Error"    
+            return "Classification Error"
 
     def classify_single_multiclass(self, text: str, categories: List[str], question_context: str = "") -> Dict[str, str]:
         """Classify a single text into multiple categories with robust parsing"""
