@@ -19,7 +19,8 @@ from .api import (
     generate_categories_only,  
     load_saved_categories,
     classify_texts_hybrid,
-    load_setfit_model      
+    load_setfit_model,
+    translate_dataset      
 )
 
 # Import classes for advanced usage
@@ -47,6 +48,7 @@ __all__ = [
     "load_saved_categories",
     "classify_texts_hybrid",
     "load_setfit_model",
+    "translate_dataset"
     
     # Classes
     "TextClassifier",
@@ -87,9 +89,6 @@ from .config import (
     parse_categories
 )
 
-
-
-
 def classify_texts(
     config: Dict[str, Any],
     run_id: Optional[str] = None,
@@ -97,59 +96,32 @@ def classify_texts(
 ) -> str:
     """
     Run text classification with proper storage.
-    
-    Args:
-        config: Configuration dictionary with keys:
-            - file_path: Path to input CSV
-            - text_column: Column containing text
-            - id_column: Column with unique IDs
-            - categories: Optional list/string of categories
-            - classifier_model: Model name (default: "gemma3n:latest")
-            - classifier_backend: "ollama" or "openai" (default: "ollama")
-            - category_backend: Backend for category generation (default: same as classifier_backend)
-            - multiclass: Enable multi-label (default: False)
-            - n_samples: Samples for category generation (default: 100)
-            - question_context: Context for category generation
-            - category_model: Model for generating categories
-        run_id: Optional run ID (auto-generated if None)
-        storage_dir: Directory to store runs
-        
-    Returns:
-        run_id: Unique identifier for this classification run
     """
-    # Apply defaults and validate
     config = get_config_with_defaults(config)
     validate_config(config)
     
-    # Generate run ID if not provided
     if run_id is None:
         run_id = datetime.now().strftime("%Y%m%d_%H%M%S") + "_" + str(uuid.uuid4())[:8]
     
-    # Initialize storage
     storage = RunStorage(storage_dir)
     
-    # Load data
     df = pd.read_csv(config["file_path"],keep_default_na=False)
 
-    # Drop rows where text column is empty or has less than 1 character
     original_count = len(df)
     df = df[df[config["text_column"]].str.len() >= 1]
+    df = df.reset_index(drop=True) # Reset index here as well for consistency
     dropped_count = original_count - len(df)
     
     if dropped_count > 0:
         print(f"[*] Dropped {dropped_count} rows with empty text")
 
-
-    # Parse categories from config
     categories = parse_categories(config)
     
-    # Initialize classifier
     classifier = TextClassifier(
         config["classifier_model"],
         config["classifier_backend"]
     )
     
-    # Run classification
     classified_df, final_categories, metrics = classifier.run_classification(
         df=df,
         text_column=config["text_column"],
@@ -162,11 +134,9 @@ def classify_texts(
         category_backend=config["category_backend"]
     )
 
-    # Add dropped count to metrics
     metrics["dropped_empty_rows"] = dropped_count
     metrics["original_rows"] = original_count    
     
-    # Create run record
     run = ClassificationRun(
         run_id=run_id,
         timestamp=datetime.now(),
@@ -176,13 +146,11 @@ def classify_texts(
         metrics=metrics
     )
     
-    # Save results
     output_file = storage.save_classification_run(run, classified_df)
     print(f"[*] Classification complete. Run ID: {run_id}")
     print(f"[*] Results saved to: {output_file}")
     
     return run_id
-
 
 def validate_classification(
     classification_run_id: str,
@@ -601,36 +569,20 @@ def classify_texts_hybrid(
 ) -> str:
     """
     Run text classification using hybrid LLM + SetFit approach.
-    
-    Args:
-        config: Standard configuration dictionary plus:
-            - use_setfit: Enable SetFit hybrid mode (default: True)
-            - setfit_model: SetFit model name (default: "sentence-transformers/paraphrase-mpnet-base-v2")
-            - confidence_threshold: Threshold for using SetFit vs LLM (default: 0.85)
-            - max_llm_samples: Max samples to classify with LLM for training (default: 200)
-            - min_samples_per_category: Min samples needed per category (default: 10)
-        run_id: Optional run ID (auto-generated if None)
-        storage_dir: Directory to store runs
-        train_config: Optional config for SetFit training:
-            - num_epochs: Training epochs (default: 1)
-            - batch_size: Training batch size (default: 16)
-            - validation_split: Validation split ratio (default: 0.2)
-        
-    Returns:
-        run_id: Unique identifier for this classification run
+    Supports both single-label and multi-label classification.
     """
     if not SETFIT_AVAILABLE:
         raise ImportError("SetFit not available. Run: pip install setfit sentence-transformers")
     
-    # Apply defaults and validate
     config = get_config_with_defaults(config)
     validate_config(config)
     
-    # SetFit specific defaults
+    is_multiclass = config.get("multiclass", False)
+    
     setfit_defaults = {
         "use_setfit": True,
         "setfit_model": "sentence-transformers/paraphrase-mpnet-base-v2",
-        "confidence_threshold": 0.85,
+        "confidence_threshold": 0.5,
         "max_llm_samples": 200,
         "min_samples_per_category": 10
     }
@@ -639,50 +591,43 @@ def classify_texts_hybrid(
         if key not in config:
             config[key] = value
     
-    # Generate run ID if not provided
     if run_id is None:
         run_id = datetime.now().strftime("%Y%m%d_%H%M%S") + "_" + str(uuid.uuid4())[:8]
     
-    # Initialize storage
     storage = RunStorage(storage_dir)
     run_dir = storage.base_dir / f"classification_{run_id}"
     run_dir.mkdir(exist_ok=True)
     
-    # Load and clean data
     df = pd.read_csv(config["file_path"], keep_default_na=False)
     original_count = len(df)
     df = df[df[config["text_column"]].str.len() >= 1]
+    
+    # *** THE FIX IS HERE ***
+    # Reset the index after filtering to ensure it's a clean, sequential 0, 1, 2...
+    df = df.reset_index(drop=True)
+    
     dropped_count = original_count - len(df)
     
     if dropped_count > 0:
         print(f"[*] Dropped {dropped_count} rows with empty text")
     
-    # Parse categories
     categories = parse_categories(config)
     
-    # Initialize LLM classifier
     llm_classifier = TextClassifier(
         config["classifier_model"],
         config["classifier_backend"]
     )
     
-    # Generate categories if needed
     if categories is None:
         cat_classifier = TextClassifier(
             model_name=config.get("category_model") or config["classifier_model"],
             backend=config.get("category_backend") or config["classifier_backend"]
         )
         categories = cat_classifier.generate_categories(
-            df, 
-            config["text_column"], 
-            config["n_samples"], 
-            config["question_context"]
+            df, config["text_column"], config["n_samples"], config["question_context"]
         )
         print(f"[*] Generated categories: {', '.join(categories)}")
-    else:
-        print(f"[*] Using provided categories: {', '.join(categories)}")
     
-    # Initialize hybrid classifier
     hybrid = HybridClassifier(
         llm_classifier,
         config["setfit_model"],
@@ -691,42 +636,34 @@ def classify_texts_hybrid(
         config["max_llm_samples"]
     )
     
-    # Collect training data
     print("\n=== Phase 1: Collecting training data with LLM ===")
     training_df, training_metrics = hybrid.collect_training_data(
-        df.sample(frac=1, random_state=42),  # Shuffle for better sampling
+        df.sample(frac=1, random_state=42),
         config["text_column"],
         config["id_column"],
         categories,
-        config["question_context"]
+        config["question_context"],
+        multiclass=is_multiclass
     )
     
-    # Save training data
     training_file = run_dir / "training_data.csv"
     training_df.to_csv(training_file, index=False)
     
-    # Train SetFit
     print("\n=== Phase 2: Training SetFit model ===")
-    train_cfg = train_config or {}
-    setfit_metrics = hybrid.train_setfit(
-        validation_split=train_cfg.get("validation_split", 0.2)
-    )
+    setfit_metrics = hybrid.train_setfit(multiclass=is_multiclass)
     
-    # Save SetFit model
     setfit_dir = run_dir / "setfit_model"
     hybrid.setfit.save(setfit_dir)
     
-    # Classify all data
     print("\n=== Phase 3: Hybrid classification ===")
     classified_df, classification_metrics = hybrid.classify_hybrid(
         df,
         config["text_column"],
         config["id_column"],
         config["question_context"],
-        use_active_learning=True
+        multiclass=is_multiclass
     )
     
-    # Combine all metrics
     metrics = {
         "total_rows": len(df),
         "dropped_empty_rows": dropped_count,
@@ -738,7 +675,6 @@ def classify_texts_hybrid(
         "num_categories": len(categories)
     }
     
-    # Create run record
     run = ClassificationRun(
         run_id=run_id,
         timestamp=datetime.now(),
@@ -748,7 +684,6 @@ def classify_texts_hybrid(
         metrics=metrics
     )
     
-    # Save results
     output_file = storage.save_classification_run(run, classified_df)
     
     print(f"\n[*] Hybrid classification complete. Run ID: {run_id}")
@@ -756,7 +691,6 @@ def classify_texts_hybrid(
     print(f"[*] LLM used for: {classification_metrics['llm_percentage']:.1f}% of classifications")
     
     return run_id
-
 
 def load_setfit_model(
     run_id: str,
@@ -781,6 +715,82 @@ def load_setfit_model(
     classifier.load(run_dir)
     
     return classifier
+
+def translate_dataset(
+    file_path: str,
+    text_column: str,
+    lang_column: str,
+    lang_to_translate: str = "FR-CA",
+    target_lang_code: str = "en",
+    model_name: str = "Helsinki-NLP/opus-mt-fr-en",
+    batch_size: int = 32
+) -> str:
+    """
+    Translates a specific language in a dataset to a target language.
+
+    Args:
+        file_path (str): Path to the input CSV file.
+        text_column (str): The column containing text to translate.
+        lang_column (str): The column that specifies the language of the text.
+        lang_to_translate (str): The language code to filter and translate (e.g., "FR-CA").
+        target_lang_code (str): The target language code (e.g., "en").
+        model_name (str): The Hugging Face model to use for translation.
+        batch_size (int): The number of texts to translate at once.
+
+    Returns:
+        str: The path to the new, translated CSV file.
+    """
+    if not TRANSLATION_AVAILABLE:
+        raise ImportError(
+            "Translation dependencies not installed. Run: pip install transformers torch sentencepiece"
+        )
+
+    print(f"[*] Loading dataset from: {file_path}")
+    p = Path(file_path)
+    df = pd.read_csv(p)
+
+    # Filter the DataFrame to get only the rows that need translation
+    to_translate_df = df[df[lang_column] == lang_to_translate]
+    
+    if to_translate_df.empty:
+        print(f"[*] No rows found with language '{lang_to_translate}'. No translation needed.")
+        return file_path
+
+    print(f"[*] Found {len(to_translate_df)} rows to translate from '{lang_to_translate}' to '{target_lang_code}'.")
+    
+    # Load the translation pipeline
+    print(f"[*] Loading translation model: {model_name}")
+    device = 0 if torch.cuda.is_available() else -1 # Use GPU if available
+    translator = pipeline(
+        "translation",
+        model=model_name,
+        device=device
+    )
+
+    # Extract the texts to translate
+    texts_to_translate = to_translate_df[text_column].tolist()
+
+    # Translate in batches for efficiency and progress tracking
+    print("[*] Translating texts...")
+    translated_texts = []
+    for i in tqdm(range(0, len(texts_to_translate), batch_size), desc="Translating"):
+        batch = texts_to_translate[i:i+batch_size]
+        translated_batch = translator(batch, src_lang=lang_to_translate, tgt_lang=target_lang_code)
+        translated_texts.extend([item['translation_text'] for item in translated_batch])
+
+    # Overwrite the original text column with the translated text
+    # Use .loc to ensure we are modifying the original DataFrame correctly
+    df.loc[to_translate_df.index, text_column] = translated_texts
+    
+    # Create the new filename
+    output_filename = f"{p.stem}_translated.csv"
+    output_path = p.parent / output_filename
+    
+    # Save the modified DataFrame
+    print(f"[*] Saving translated dataset to: {output_path}")
+    df.to_csv(output_path, index=False)
+    
+    return str(output_path)
 
 # ===== classifier.py =====
 # text_classifier/classifier.py
@@ -1027,8 +1037,42 @@ Each category should be concise (2-5 words) and clearly distinct from others."""
         
         return categories
 
+    def _disambiguate_category(self, text: str, ambiguous_categories: List[str], question_context: str) -> str:
+        """
+        Makes a second, targeted LLM call to resolve ambiguity between multiple matching categories.
+        """
+        print(f"[*] Ambiguity detected. Asking LLM to choose from: {ambiguous_categories}")
+        
+        prompt = (
+            "You are a classification assistant. Your task is to resolve an ambiguity.\n"
+            f"Survey question: {question_context}\n\n"
+            f"Response:\n\"{text}\"\n\n"
+            "The response could fit into several categories. Choose the single best category from the following list ONLY:\n"
+            f"- {', '.join(ambiguous_categories)}\n\n"
+            "Return the single best category name exactly as it appears in the list."
+        )
+
+        try:
+            reply = self.send_chat([{"role": "system", "content": prompt}])
+            response = reply["message"]["content"].strip()
+            
+            # Final check: The response from the disambiguation call MUST be a perfect match
+            # to one of the ambiguous categories.
+            for cat in ambiguous_categories:
+                if cat.lower() == response.lower():
+                    return cat # Return the original category name with correct casing
+            
+            print(f"[!] Warning: Disambiguation failed. LLM returned '{response}', which is not in the provided list.")
+            return "Uncategorized"
+
+        except Exception as e:
+            print(f"Error during disambiguation call: {e}")
+            return "Uncategorized"
+
     def classify_single(self, text: str, categories: List[str], question_context: str = "") -> str:
-        """Classify a single text with error handling"""
+        """
+        Classify a single text with a robust, multi-step validation and disambiguation process.
+        """
         prompt = (
             "You are a survey response classifier.\n"
             f"Survey question: {question_context}\n\n"
@@ -1039,41 +1083,34 @@ Each category should be concise (2-5 words) and clearly distinct from others."""
         
         try:
             reply = self.send_chat([{"role": "system", "content": prompt}])
-            response = reply["message"]["content"].strip()
+            response_text = reply["message"]["content"].strip()
+            response_lower = response_text.lower()
+
+            # 1a. Check for a perfect (case-insensitive) match first.
+            perfect_matches = [cat for cat in categories if cat.lower() == response_lower]
+            if perfect_matches:
+                # Return the category with its original casing.
+                return perfect_matches[0]
+
+            # 1b. If no perfect match, check for an unambiguous substring match.
+            substring_matches = [cat for cat in categories if response_lower in cat.lower()]
             
-            # Validate response is in categories
-            if response not in categories:
-                # Try case-insensitive match
-                for cat in categories:
-                    if cat.lower() == response.lower():
-                        return cat
-                
-                # Try regex matching - check if response is contained in exactly one category
-                response_lower = response.lower()
-                matches = []
-                
-                for cat in categories:
-                    if response_lower in cat.lower():
-                        matches.append(cat)
-                
-                if len(matches) == 1:
-                    # Found in exactly one category
-                    print(f"Warning: LLM returned '{response}' - matched to category '{matches[0]}' via substring match.")
-                    return matches[0]
-                else:
-                    # Not found or found in multiple categories
-                    if len(matches) > 1:
-                        print(f"Warning: LLM returned '{response}' which matches multiple categories: {matches}. Returning 'Uncategorized'.")
-                    else:
-                        print(f"Warning: LLM returned '{response}' which doesn't match any category. Returning 'Uncategorized'.")
-                    return "Uncategorized"
-            
-            return response
+            if len(substring_matches) == 1:
+                # Found exactly one unambiguous match.
+                print(f"[*] Info: LLM returned '{response_text}'. Matched to unique category '{substring_matches[0]}' via substring.")
+                return substring_matches[0]
+
+            # 1c. If there is ambiguity (multiple substring matches), make a second LLM call.
+            if len(substring_matches) > 1:
+                return self._disambiguate_category(text, substring_matches, question_context)
+
+            # 1d. If no matches of any kind were found.
+            print(f"[!] Warning: LLM returned '{response_text}', which does not match any category. Returning 'Uncategorized'.")
+            return "Uncategorized"
             
         except Exception as e:
             print(f"Error in classify_single: {e}")
-            # Return a default category or raise depending on your needs
-            return "Classification Error"    
+            return "Classification Error"
 
     def classify_single_multiclass(self, text: str, categories: List[str], question_context: str = "") -> Dict[str, str]:
         """Classify a single text into multiple categories with robust parsing"""
@@ -1221,17 +1258,18 @@ from datetime import datetime
 from tqdm import tqdm
 
 try:
-    from setfit import SetFitModel
+    from setfit import SetFitModel, Trainer, TrainingArguments
     from sentence_transformers import SentenceTransformer
+    from datasets import Dataset
     SETFIT_AVAILABLE = True
 except ImportError:
     SETFIT_AVAILABLE = False
-    SetFitModel = None
-    SentenceTransformer = None
+    # Define dummy classes if dependencies are not installed
+    SetFitModel, Trainer, TrainingArguments, SentenceTransformer, Dataset = (None, None, None, None, None)
 
 
 class SetFitClassifier:
-    """SetFit-based text classifier for fast, few-shot learning"""
+    """SetFit-based text classifier for fast, few-shot learning, with multi-label support."""
     
     def __init__(
         self, 
@@ -1240,7 +1278,7 @@ class SetFitClassifier:
     ):
         if not SETFIT_AVAILABLE:
             raise ImportError(
-                "SetFit not installed. Run: pip install setfit sentence-transformers"
+                "SetFit not installed. Run: pip install setfit sentence-transformers datasets"
             )
         
         self.model_name = model_name
@@ -1248,128 +1286,118 @@ class SetFitClassifier:
         self.model = None
         self.categories = None
         self.is_trained = False
+        self.multiclass = False
 
     def train(
         self,
         texts: List[str],
-        labels: List[str],
+        labels: Union[List[str], List[List[str]]], # Can be single or multi-label
         categories: List[str],
+        multiclass: bool = False,
         validation_texts: Optional[List[str]] = None,
-        validation_labels: Optional[List[str]] = None,
+        validation_labels: Optional[Union[List[str], List[List[str]]]] = None,
         num_epochs: int = 1,
         batch_size: int = 16
     ) -> Dict[str, Any]:
-        """Train SetFit model on labeled data"""
+        """Train SetFit model on labeled data (supports single and multi-label)."""
         print(f"[*] Training SetFit model with {len(texts)} samples...")
         
-        # Store categories for later use
         self.categories = categories
+        self.multiclass = multiclass
         
-        # Convert string labels to numeric
-        label_to_id = {label: idx for idx, label in enumerate(categories)}
-        numeric_labels = [label_to_id[label] for label in labels]
+        # Convert labels to numeric format
+        if multiclass:
+            # Multi-label: multi-hot encode the labels
+            label_to_id = {label: idx for idx, label in enumerate(categories)}
+            numeric_labels = []
+            for sample_labels in labels:
+                multi_hot = np.zeros(len(categories), dtype=np.float32)
+                for label in sample_labels:
+                    if label in label_to_id:
+                        multi_hot[label_to_id[label]] = 1.0
+                numeric_labels.append(multi_hot)
+        else:
+            # Single-label: Filter out texts and labels that are not valid
+            label_to_id = {label: idx for idx, label in enumerate(categories)}
+            
+            # Pair up texts and labels to filter them in unison
+            paired_data = list(zip(texts, labels))
+            valid_pairs = [(text, label) for text, label in paired_data if label in label_to_id]
+
+            if len(valid_pairs) < len(paired_data):
+                print(f"[!] Warning: Filtered out {len(paired_data) - len(valid_pairs)} samples with invalid labels (e.g., 'Uncategorized').")
+
+            if not valid_pairs:
+                print("[!] Error: No valid training data left after filtering. Aborting training.")
+                return {"error": "No valid training data."}
+
+            # Unzip back into separate lists, now guaranteed to be the same length
+            texts, labels = zip(*valid_pairs)
+            
+            # Convert valid string labels to numeric IDs
+            numeric_labels = [label_to_id[label] for label in labels]
         
         # Initialize model
-        from setfit import SetFitModel, Trainer, TrainingArguments
-        from datasets import Dataset
-        
         self.model = SetFitModel.from_pretrained(
             self.model_name,
-            labels=list(range(len(categories))),
+            labels=list(range(len(categories))) if not multiclass else None,
+            multi_target_strategy="one-vs-rest" if multiclass else None,
             device=self.device
         )
         
         # Create HuggingFace Dataset objects
-        train_dataset = Dataset.from_dict({
-            "text": texts,
-            "label": numeric_labels
-        })
+        train_dataset = Dataset.from_dict({"text": list(texts), "label": numeric_labels})
         
         eval_dataset = None
-        if validation_texts and validation_labels:
-            val_numeric_labels = [label_to_id[label] for label in validation_labels]
-            eval_dataset = Dataset.from_dict({
-                "text": validation_texts,
-                "label": val_numeric_labels
-            })
-        
-        # Create training arguments
+        # (Validation logic for multiclass would need similar multi-hot encoding)
+
         args = TrainingArguments(
             batch_size=batch_size,
             num_epochs=num_epochs,
-            eval_strategy="epoch" if eval_dataset else "no",
-            save_strategy="no",
-            load_best_model_at_end=False,
-            report_to="none"  # Disable wandb/tensorboard
+            report_to="none"
         )
         
-        # Create trainer
         trainer = Trainer(
             model=self.model,
             args=args,
             train_dataset=train_dataset,
-            eval_dataset=eval_dataset,
-            column_mapping={"text": "text", "label": "label"}  # Explicit mapping
+            column_mapping={"text": "text", "label": "label"}
         )
         
-        # Train
         trainer.train()
-        
         self.is_trained = True
         
-        # Calculate training metrics
         metrics = {
             "num_training_samples": len(texts),
             "num_categories": len(categories),
-            "model_name": self.model_name,
-            "num_epochs": num_epochs,
-            "categories_with_samples": len(set(labels))
+            "multiclass": self.multiclass
         }
-        
-        # If validation data provided, calculate accuracy
-        if validation_texts and validation_labels:
-            predictions = self.predict_batch(validation_texts)
-            accuracy = sum(p == l for p, l in zip(predictions, validation_labels)) / len(validation_labels)
-            metrics["validation_accuracy"] = accuracy
-            
         return metrics            
-    
-    def predict(self, text: str, return_proba: bool = False) -> Union[str, Tuple[str, float]]:
-        """Predict category for a single text"""
-        if not self.is_trained:
-            raise ValueError("Model not trained. Call train() first.")
-        
-        # Get prediction
-        prediction = self.model.predict([text])[0]
-        
-        if return_proba:
-            # Get probabilities
-            proba = self.model.predict_proba([text])[0]
-            confidence = float(max(proba))
-            return self.categories[prediction], confidence
-        
-        return self.categories[prediction]
     
     def predict_batch(
         self, 
         texts: List[str], 
-        return_proba: bool = False
-    ) -> Union[List[str], List[Tuple[str, float]]]:
-        """Predict categories for multiple texts"""
+        threshold: float = 0.5
+    ) -> Union[List[str], List[List[str]]]:
+        """Predict categories for multiple texts."""
         if not self.is_trained:
             raise ValueError("Model not trained. Call train() first.")
         
-        predictions = self.model.predict(texts)
-        
-        if return_proba:
+        if self.multiclass:
+            # For multi-label, predict_proba gives probabilities for each class
             probas = self.model.predict_proba(texts)
             results = []
-            for pred, proba in zip(predictions, probas):
-                confidence = float(max(proba))
-                results.append((self.categories[pred], confidence))
+            for p_array in probas:
+                # Get labels where probability is above the threshold
+                predicted_labels = [
+                    self.categories[i] for i, prob in enumerate(p_array) if prob >= threshold
+                ]
+                results.append(predicted_labels)
             return results
-        
-        return [self.categories[pred] for pred in predictions]
+        else:
+            # For single-label, predict gives the highest probability class
+            predictions = self.model.predict(texts)
+            return [self.categories[pred] for pred in predictions]
     
     def save(self, save_dir: Union[str, Path]):
         """Save trained model"""
@@ -1378,41 +1406,34 @@ class SetFitClassifier:
         
         save_dir = Path(save_dir)
         save_dir.mkdir(exist_ok=True, parents=True)
-        
-        # Save model
         self.model.save_pretrained(str(save_dir))
         
-        # Save metadata
         metadata = {
             "categories": self.categories,
             "model_name": self.model_name,
             "is_trained": self.is_trained,
+            "multiclass": self.multiclass, # Save multiclass status
             "saved_at": datetime.now().isoformat()
         }
-        
         with open(save_dir / "setfit_metadata.json", "w") as f:
             json.dump(metadata, f, indent=2)
-            
         print(f"[*] SetFit model saved to: {save_dir}")
     
     def load(self, load_dir: Union[str, Path]):
         """Load trained model"""
         load_dir = Path(load_dir)
-        
         if not (load_dir / "setfit_metadata.json").exists():
             raise ValueError(f"No SetFit model found in {load_dir}")
         
-        # Load metadata
         with open(load_dir / "setfit_metadata.json") as f:
             metadata = json.load(f)
         
         self.categories = metadata["categories"]
         self.model_name = metadata["model_name"]
         self.is_trained = metadata["is_trained"]
+        self.multiclass = metadata.get("multiclass", False) # Load multiclass status
         
-        # Load model
         self.model = SetFitModel.from_pretrained(str(load_dir))
-        
         print(f"[*] SetFit model loaded from: {load_dir}")
 
 
@@ -1421,9 +1442,9 @@ class HybridClassifier:
     
     def __init__(
         self,
-        llm_classifier,  # TextClassifier instance
+        llm_classifier,
         setfit_model_name: str = "sentence-transformers/paraphrase-mpnet-base-v2",
-        confidence_threshold: float = 0.85,
+        confidence_threshold: float = 0.5, # For multiclass, this is the prediction threshold
         min_samples_per_category: int = 10,
         max_llm_samples: int = 200
     ):
@@ -1441,96 +1462,61 @@ class HybridClassifier:
         text_column: str,
         id_column: str,
         categories: List[str],
-        question_context: str = ""
+        question_context: str = "",
+        multiclass: bool = False
     ) -> Tuple[pd.DataFrame, Dict[str, Any]]:
         """Use LLM to classify initial samples for training"""
         print(f"[*] Collecting training data using LLM (max {self.max_llm_samples} samples)...")
-        
         self.categories = categories
         
-        # Sample data for training
         sample_size = min(self.max_llm_samples, len(df))
         sample_df = df.sample(n=sample_size, random_state=42)
         
-        texts = []
-        labels = []
-        ids = []
-        
+        rows = []
         for _, row in tqdm(sample_df.iterrows(), total=len(sample_df), desc="LLM Classification"):
             text = row[text_column]
-            label = self.llm_classifier.classify_single(text, categories, question_context)
+            record = {id_column: row[id_column], text_column: text}
             
-            texts.append(text)
-            labels.append(label)
-            ids.append(row[id_column])
+            if multiclass:
+                # Get {'cat1': 'yes', 'cat2': 'no'} from LLM
+                labels_dict = self.llm_classifier.classify_single_multiclass(text, categories, question_context)
+                # Convert to list of applicable categories: ['cat1']
+                labels_list = [cat for cat, answer in labels_dict.items() if answer == 'yes']
+                record['labels'] = labels_list # Store as a list
+                # Also store the dict for the DataFrame
+                record.update(labels_dict)
+
+            else:
+                label = self.llm_classifier.classify_single(text, categories, question_context)
+                record['category'] = label
+            
+            rows.append(record)
+
+        training_df = pd.DataFrame(rows)
         
-        # Create training dataframe
-        training_df = pd.DataFrame({
-            id_column: ids,
-            text_column: texts,
-            'category': labels
-        })
-        
-        # Store for later use
-        self.training_data = list(zip(texts, labels))
-        
-        # Check if we have enough samples per category
-        category_counts = training_df['category'].value_counts()
-        metrics = {
-            "total_training_samples": len(training_df),
-            "category_distribution": category_counts.to_dict(),
-            "categories_with_insufficient_samples": [
-                cat for cat in categories 
-                if category_counts.get(cat, 0) < self.min_samples_per_category
-            ]
-        }
-        
+        # Store for training
+        if multiclass:
+            self.training_data = list(zip(training_df[text_column], training_df['labels']))
+        else:
+            self.training_data = list(zip(training_df[text_column], training_df['category']))
+
+        metrics = {"total_training_samples": len(training_df)}
         return training_df, metrics
     
-    def train_setfit(self, validation_split: float = 0.2) -> Dict[str, Any]:
+    def train_setfit(self, multiclass: bool = False) -> Dict[str, Any]:
         """Train SetFit model on collected data"""
         if not self.training_data:
             raise ValueError("No training data collected. Run collect_training_data first.")
         
         texts, labels = zip(*self.training_data)
-        texts, labels = list(texts), list(labels)
-        
-        # Filter out 'Uncategorized' samples
-        filtered_data = [(t, l) for t, l in zip(texts, labels) if l != 'Uncategorized']
-        
-        if not filtered_data:
-            raise ValueError("No valid training data after filtering 'Uncategorized' samples")
-        
-        if len(filtered_data) < len(texts):
-            print(f"[!] Filtered out {len(texts) - len(filtered_data)} 'Uncategorized' samples")
-        
-        texts, labels = zip(*filtered_data)
-        texts, labels = list(texts), list(labels)
-        
-        # Check if we still have all categories represented
-        unique_labels = set(labels)
-        missing_categories = set(self.categories) - unique_labels
-        if missing_categories:
-            print(f"[!] Warning: No training samples for categories: {missing_categories}")
-    
-        # Split for validation
-        if validation_split > 0:
-            split_idx = int(len(texts) * (1 - validation_split))
-            train_texts, val_texts = texts[:split_idx], texts[split_idx:]
-            train_labels, val_labels = labels[:split_idx], labels[split_idx:]
-        else:
-            train_texts, val_texts = texts, None
-            train_labels, val_labels = labels, None
         
         # Train SetFit
         metrics = self.setfit.train(
-            train_texts,
-            train_labels,
+            list(texts),
+            list(labels),
             self.categories,
-            val_texts,
-            val_labels
+            multiclass=multiclass
         )
-        
         return metrics
     
     def classify_hybrid(
@@ -1539,7 +1525,7 @@ class HybridClassifier:
         text_column: str,
         id_column: str,
         question_context: str = "",
-        use_active_learning: bool = True
+        multiclass: bool = False
     ) -> Tuple[pd.DataFrame, Dict[str, Any]]:
         """Classify using hybrid approach"""
         if not self.setfit.is_trained:
@@ -1547,62 +1533,57 @@ class HybridClassifier:
         
         print(f"[*] Running hybrid classification on {len(df)} samples...")
         
+        # Get all SetFit predictions first in a batch
+        setfit_predictions = self.setfit.predict_batch(
+            df[text_column].tolist(), 
+            threshold=self.confidence_threshold
+        )
+        
         results = []
         llm_count = 0
-        setfit_count = 0
         
-        for _, row in tqdm(df.iterrows(), total=len(df), desc="Hybrid Classification"):
+        for idx, row in tqdm(df.iterrows(), total=len(df), desc="Hybrid Classification"):
             text = row[text_column]
+            record = {id_column: row[id_column], text_column: text}
             
-            if use_active_learning:
-                # Get prediction with confidence
-                category, confidence = self.setfit.predict(text, return_proba=True)
-                
-                if confidence < self.confidence_threshold:
-                    # Low confidence - use LLM
-                    category = self.llm_classifier.classify_single(
-                        text, self.categories, question_context
-                    )
-                    llm_count += 1
-                    source = "llm"
-                else:
-                    # High confidence - use SetFit prediction
-                    setfit_count += 1
-                    source = "setfit"
+            # For multiclass, we define "low confidence" as SetFit returning an empty list.
+            # This means no category passed the confidence threshold.
+            is_low_confidence = multiclass and not setfit_predictions[idx]
+
+            if is_low_confidence:
+                # Low confidence - use LLM
+                llm_count += 1
+                source = "llm"
+                if multiclass:
+                    labels_dict = self.llm_classifier.classify_single_multiclass(text, self.categories, question_context)
+                    record.update(labels_dict)
+                else: # Fallback for single-class (though confidence logic differs)
+                    label = self.llm_classifier.classify_single(text, self.categories, question_context)
+                    record['category'] = label
             else:
-                # Just use SetFit
-                category = self.setfit.predict(text)
-                setfit_count += 1
+                # High confidence - use SetFit prediction
                 source = "setfit"
-                confidence = None
-            
-            result = {
-                id_column: row[id_column],
-                text_column: text,
-                'category': category,
-                'source': source
-            }
-            
-            if confidence is not None:
-                result['confidence'] = confidence
-                
-            results.append(result)
+                if multiclass:
+                    # Convert list from SetFit to yes/no dictionary
+                    labels_dict = {cat: ('yes' if cat in setfit_predictions[idx] else 'no') for cat in self.categories}
+                    record.update(labels_dict)
+                else:
+                    record['category'] = setfit_predictions[idx]
+
+            record['source'] = source
+            results.append(record)
         
         results_df = pd.DataFrame(results)
         
         metrics = {
             "total_classified": len(results_df),
             "llm_classifications": llm_count,
-            "setfit_classifications": setfit_count,
-            "llm_percentage": (llm_count / len(results_df)) * 100 if len(results_df) > 0 else 0,
-            "category_distribution": results_df['category'].value_counts().to_dict()
+            "setfit_classifications": len(df) - llm_count,
+            "llm_percentage": (llm_count / len(df)) * 100 if len(df) > 0 else 0
         }
         
-        if 'confidence' in results_df.columns:
-            metrics["average_confidence"] = results_df['confidence'].mean()
-            metrics["low_confidence_ratio"] = (results_df['confidence'] < self.confidence_threshold).mean()
-        
         return results_df, metrics
+
 
 # ===== config.py =====
 # text_classifier/config.py

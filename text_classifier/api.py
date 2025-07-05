@@ -16,6 +16,7 @@ from .storage import RunStorage
 from .classifier import TextClassifier
 from .validator import ClassificationValidator
 from .setfit_classifier import SetFitClassifier, HybridClassifier, SETFIT_AVAILABLE
+from .translator import translate_dataset, TRANSLATION_AVAILABLE
 from .config import (
     load_config as _load_config,
     validate_config,

@@ -127,9 +127,10 @@ class SetFitClassifier:
     def predict_batch(
         self, 
         texts: List[str], 
-        threshold: float = 0.5
-    ) -> Union[List[str], List[List[str]]]:
-        """Predict categories for multiple texts."""
+        threshold: float = 0.5,
+        return_confidence: bool = False  # Add this parameter
+    ) -> Union[List[str], List[List[str]], List[Tuple[List[str], float]]]:
+        """Predict categories for multiple texts with optional confidence scores."""
         if not self.is_trained:
             raise ValueError("Model not trained. Call train() first.")
         
@@ -137,17 +138,39 @@ class SetFitClassifier:
             # For multi-label, predict_proba gives probabilities for each class
             probas = self.model.predict_proba(texts)
             results = []
+            
             for p_array in probas:
                 # Get labels where probability is above the threshold
                 predicted_labels = [
                     self.categories[i] for i, prob in enumerate(p_array) if prob >= threshold
                 ]
-                results.append(predicted_labels)
+                
+                if return_confidence:
+                    # For multiclass, confidence is the average of selected probabilities
+                    # or the max probability if no labels pass threshold
+                    if predicted_labels:
+                        selected_probs = [prob for prob in p_array if prob >= threshold]
+                        avg_confidence = sum(selected_probs) / len(selected_probs)
+                    else:
+                        avg_confidence = max(p_array)  # Max prob even if below threshold
+                    results.append((predicted_labels, avg_confidence))
+                else:
+                    results.append(predicted_labels)
+                    
             return results
         else:
-            # For single-label, predict gives the highest probability class
+            # For single-label classification
             predictions = self.model.predict(texts)
-            return [self.categories[pred] for pred in predictions]
+            
+            if return_confidence:
+                probas = self.model.predict_proba(texts)
+                results = []
+                for pred, proba in zip(predictions, probas):
+                    confidence = float(max(proba))
+                    results.append((self.categories[pred], confidence))
+                return results
+            else:
+                return [self.categories[pred] for pred in predictions]
     
     def save(self, save_dir: Union[str, Path]):
         """Save trained model"""
@@ -277,17 +300,30 @@ class HybridClassifier:
         question_context: str = "",
         multiclass: bool = False
     ) -> Tuple[pd.DataFrame, Dict[str, Any]]:
-        """Classify using hybrid approach"""
+        """Classify using hybrid approach with proper confidence handling"""
         if not self.setfit.is_trained:
             raise ValueError("SetFit model not trained. Run train_setfit first.")
         
         print(f"[*] Running hybrid classification on {len(df)} samples...")
         
-        # Get all SetFit predictions first in a batch
-        setfit_predictions = self.setfit.predict_batch(
-            df[text_column].tolist(), 
-            threshold=self.confidence_threshold
-        )
+        # Get all SetFit predictions with confidence scores
+        if multiclass:
+            # For multiclass, get predictions with confidence
+            setfit_predictions_with_conf = self.setfit.predict_batch(
+                df[text_column].tolist(), 
+                threshold=self.confidence_threshold,
+                return_confidence=True
+            )
+            setfit_predictions = [pred for pred, _ in setfit_predictions_with_conf]
+            setfit_confidences = [conf for _, conf in setfit_predictions_with_conf]
+        else:
+            # For single-label, also get confidence
+            setfit_predictions_with_conf = self.setfit.predict_batch(
+                df[text_column].tolist(),
+                return_confidence=True
+            )
+            setfit_predictions = [pred for pred, _ in setfit_predictions_with_conf]
+            setfit_confidences = [conf for _, conf in setfit_predictions_with_conf]
         
         results = []
         llm_count = 0
@@ -296,40 +332,60 @@ class HybridClassifier:
             text = row[text_column]
             record = {id_column: row[id_column], text_column: text}
             
-            # For multiclass, we define "low confidence" as SetFit returning an empty list.
-            # This means no category passed the confidence threshold.
-            is_low_confidence = multiclass and not setfit_predictions[idx]
-
+            # Determine if this is a low confidence prediction
+            if multiclass:
+                # For multiclass: low confidence if:
+                # 1. No labels predicted (empty list), OR
+                # 2. Average confidence is below threshold
+                is_low_confidence = (
+                    not setfit_predictions[idx] or 
+                    setfit_confidences[idx] < self.confidence_threshold
+                )
+            else:
+                # For single-label: low confidence if below threshold
+                is_low_confidence = setfit_confidences[idx] < self.confidence_threshold
+    
             if is_low_confidence:
                 # Low confidence - use LLM
                 llm_count += 1
                 source = "llm"
                 if multiclass:
-                    labels_dict = self.llm_classifier.classify_single_multiclass(text, self.categories, question_context)
+                    labels_dict = self.llm_classifier.classify_single_multiclass(
+                        text, self.categories, question_context
+                    )
                     record.update(labels_dict)
-                else: # Fallback for single-class (though confidence logic differs)
-                    label = self.llm_classifier.classify_single(text, self.categories, question_context)
+                else:
+                    label = self.llm_classifier.classify_single(
+                        text, self.categories, question_context
+                    )
                     record['category'] = label
             else:
                 # High confidence - use SetFit prediction
                 source = "setfit"
                 if multiclass:
                     # Convert list from SetFit to yes/no dictionary
-                    labels_dict = {cat: ('yes' if cat in setfit_predictions[idx] else 'no') for cat in self.categories}
+                    labels_dict = {
+                        cat: ('yes' if cat in setfit_predictions[idx] else 'no') 
+                        for cat in self.categories
+                    }
                     record.update(labels_dict)
                 else:
                     record['category'] = setfit_predictions[idx]
-
+    
             record['source'] = source
+            record['confidence'] = setfit_confidences[idx]  # Store confidence for analysis
             results.append(record)
         
         results_df = pd.DataFrame(results)
         
+        # Calculate metrics with more detail
         metrics = {
             "total_classified": len(results_df),
             "llm_classifications": llm_count,
             "setfit_classifications": len(df) - llm_count,
-            "llm_percentage": (llm_count / len(df)) * 100 if len(df) > 0 else 0
+            "llm_percentage": (llm_count / len(df)) * 100 if len(df) > 0 else 0,
+            "avg_confidence": results_df['confidence'].mean(),
+            "low_confidence_count": (results_df['confidence'] < self.confidence_threshold).sum()
         }
         
         return results_df, metrics

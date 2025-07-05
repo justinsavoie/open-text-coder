@@ -76,3 +76,14 @@ if not results_df.empty:
     print(f"Total errors: {len(error_df)}")
     # You can now work with error_df directly in your script
     print(error_df.head())
+
+# Pre-process a Multi-lingual Dataset
+from text_classifier import translate_dataset
+
+# Translate all rows where 'Q_Language' is 'FR-CA' to English
+translated_file_path = translate_dataset(
+    file_path="data/data-cps21.csv",
+    text_column="cps21_imp_iss",
+    lang_column="Q_Language",
+    lang_to_translate="FR-CA"
+)

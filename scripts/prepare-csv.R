@@ -23,6 +23,17 @@ df %>%
   write_csv("data-cps21.csv")
 
 df %>%
-  select(cps21_ResponseId,cps21_imp_iss) %>%
+  select(cps21_ResponseId,cps21_imp_iss,Q_Language) %>%
   filter(complete.cases(.)) %>% 
   write_csv("data-cps21-FULL.csv")
+
+df6 <- read_rds("~/Documents/IIUData/tides/Wave6/tides_w6_clean.rds")
+
+df6 %>%
+  select(UniqueID, ACAN_ELECTION_FREENEXT_WHY_NEITHER, ACAN_ELECTION_FREENEXT_WHY_DISAGREE) %>%
+  mutate(open=ifelse(ACAN_ELECTION_FREENEXT_WHY_NEITHER=="", 
+                                 ACAN_ELECTION_FREENEXT_WHY_DISAGREE, 
+                                 ACAN_ELECTION_FREENEXT_WHY_NEITHER)) %>%
+  select(UniqueID, open) %>%
+  filter(open != "") %>%
+  write_csv("data-z.csv")

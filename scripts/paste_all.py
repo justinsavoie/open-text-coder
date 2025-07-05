@@ -12,7 +12,7 @@ files = [
 
 folder = "text_classifier"
 
-with open("misc_/all_code.txt", "w") as outfile:
+with open("scripts/all_code.txt", "w") as outfile:
     for fname in files:
         path = f"{folder}/{fname}"
         with open(path) as infile:

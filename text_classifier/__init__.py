@@ -18,7 +18,8 @@ from .api import (
     generate_categories_only,  
     load_saved_categories,
     classify_texts_hybrid,
-    load_setfit_model      
+    load_setfit_model,
+    translate_dataset      
 )
 
 # Import classes for advanced usage
@@ -26,6 +27,7 @@ from .classifier import TextClassifier
 from .validator import ClassificationValidator
 from .storage import RunStorage
 from .models import ClassificationRun, ValidationRun
+from .translator import translate_dataset, TRANSLATION_AVAILABLE
 
 # Import SetFit classes
 from .setfit_classifier import SetFitClassifier, HybridClassifier, SETFIT_AVAILABLE
@@ -46,6 +48,9 @@ __all__ = [
     "load_saved_categories",
     "classify_texts_hybrid",
     "load_setfit_model",
+    "translate_dataset",
+    "translate_dataset",
+    "TRANSLATION_AVAILABLE",
     
     # Classes
     "TextClassifier",
