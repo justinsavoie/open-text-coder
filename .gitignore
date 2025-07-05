@@ -9,5 +9,4 @@ runs/*
 checkpoints/*
 !checkpoints/.gitkeep
 
-data/*
-!data/.gitkeep
+data/data-z.csv
