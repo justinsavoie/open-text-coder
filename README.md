@@ -1,6 +1,6 @@
 # Minimal Text Classifier
 
-A lightweight text classification system using LLMs and machine learning. No frameworks, no complexity - just clean functions that work.
+A lightweight text classification system using LLMs and machine learning.
 
 ## Installation
 
