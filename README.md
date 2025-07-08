@@ -1,6 +1,6 @@
-# Minimal Text Classifier
+# The Text Classifier
 
-A lightweight text classification system using LLMs and machine learning.
+A relatively lightweight text classification system using LLMs and machine learning.
 
 ## Installation
 
@@ -128,7 +128,7 @@ categories = clf.suggest_categories(
 )
 print(categories)
 
-categories = ['Housing affordability', 'COVID-19 response', 'Economy', 'Climate change', 'Healthcare', 'Taxes', 'Indigenous rights', 'Education', 'Immigration', 'Social programs', 'Leadership and governance', 'Corruption and ethics', 'National unity', 'International relations']
+categories = ['Housing affordability', 'COVID-19 response', 'Economy', 'Climate change', 'Healthcare', 'Taxes', 'Indigenous rights', 'Education', 'Immigration', 'Social programs', 'Leadership and governance', 'Corruption and ethics', 'National unity', 'International relations', "Other, Uncertain, No answer"]
 
 # Step 3: Classify all responses
 
