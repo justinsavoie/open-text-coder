@@ -34,7 +34,7 @@ class TextClassifier:
         prompt = f"""Context: {context}
 
 Sample responses:
-{samples.to_list()[:20]}  # Just show first 20
+{samples.to_list()}  
 
 Based on these samples, suggest 5-15 categories as a Python list.
 Return ONLY a Python list like: ["Category 1", "Category 2", ...]"""
@@ -85,8 +85,14 @@ Return ONLY a Python list like: ["Category 1", "Category 2", ...]"""
         self.categories = categories
         
         # Phase 1: Label samples with LLM
-        print(f"\nPhase 1: Labeling {n_llm_samples} samples with LLM...")
         sample_size = min(n_llm_samples, len(df))
+        
+        # Skip hybrid approach for small datasets
+        if len(df) <= n_llm_samples:
+            print(f"\nDataset has {len(df)} texts - using LLM for all (no ML training needed)")
+        else:
+            print(f"\nPhase 1: Labeling {sample_size} samples with LLM...")
+        
         sample_indices = df.sample(sample_size, random_state=42).index
         
         if multiclass:
@@ -107,20 +113,37 @@ Return ONLY a Python list like: ["Category 1", "Category 2", ...]"""
                     print(f"  Labeled {len(labeled_data)} samples...")
         
         # Phase 2: Train classifier
-        print(f"\nPhase 2: Training classifier on {len(labeled_data)} labeled samples...")
-        self._train_classifier(labeled_data, multiclass)
-        
-        # Phase 3: Predict on all data
-        print(f"\nPhase 3: Predicting on all {len(df)} texts...")
-        predictions = self._predict_batch(df[text_column].tolist(), multiclass)
-        
-        # Add predictions to dataframe
-        if multiclass:
-            # Add binary columns for each category
-            for cat in categories:
-                df[cat] = [cat in pred for pred in predictions]
+        if len(df) <= n_llm_samples:
+            # Skip training - we'll just return LLM labels
+            print("\nSkipping ML training - all texts already labeled by LLM")
+            # Create predictions from labeled data
+            if multiclass:
+                for cat in categories:
+                    df[cat] = False
+                for idx, (text, labels) in enumerate(labeled_data):
+                    row_idx = sample_indices[idx]
+                    for cat in categories:
+                        df.loc[row_idx, cat] = cat in labels
+            else:
+                df['category'] = ''
+                for idx, (text, label) in enumerate(labeled_data):
+                    row_idx = sample_indices[idx]
+                    df.loc[row_idx, 'category'] = label
         else:
-            df['category'] = predictions
+            print(f"\nPhase 2: Training classifier on {len(labeled_data)} labeled samples...")
+            self._train_classifier(labeled_data, multiclass)
+            
+            # Phase 3: Predict on all data
+            print(f"\nPhase 3: Predicting on all {len(df)} texts...")
+            predictions = self._predict_batch(df[text_column].tolist(), multiclass)
+            
+            # Add predictions to dataframe
+            if multiclass:
+                # Add binary columns for each category
+                for cat in categories:
+                    df[cat] = [cat in pred for pred in predictions]
+            else:
+                df['category'] = predictions
         
         # Save if requested
         if output_file:

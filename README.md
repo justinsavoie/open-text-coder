@@ -5,7 +5,7 @@ A lightweight text classification system using LLMs and machine learning.
 ## Installation
 
 ```bash
-pip install pandas scikit-learn sentence-transformers openai ollama transformers torch ipython
+pip install pandas scikit-learn sentence-transformers openai ollama transformers torch ipython umap-learn matplotlib sentencepiece
 ```
 
 For OpenAI:
@@ -21,17 +21,17 @@ export OPENAI_API_KEY="your-key-here"
 from classifier import TextClassifier
 
 # Use OpenAI
-clf = TextClassifier(backend="openai", model="gpt-4.1-nano")
+clf = TextClassifier(backend="openai", model="gpt-4.1")
 
 # Or use local Ollama
-clf = TextClassifier(backend="ollama", model="llama2")
+clf = TextClassifier(backend="ollama", model="gemma3n:latest")
 
 # Generate categories from your data
 categories = clf.suggest_categories(
-    "survey.csv",
-    text_column="response",
-    n_samples=100,
-    context="What is the most important issue?"
+    "data/data-cps21.csv",
+    text_column="cps21_imp_iss",
+    n_samples=200,
+    context="The open text survey question is: What is the most important issue in the upcoming Canadian federal election? (answers in English or French)"
 )
 print(categories)
 # Output: ['Healthcare', 'Economy', 'Education', 'Environment', 'Other']
@@ -41,17 +41,17 @@ print(categories)
 
 ```python
 # Define your categories
-categories = ['Healthcare', 'Economy', 'Education', 'Environment', 'Other']
+categories = ['COVID-19 / Pandemic', 'Healthcare', 'Economy / Economic Recovery', 'Environment / Climate Change', 'Taxes / Government Spending / Deficit', 'Housing / Affordability / Cost of Living', 'Government Leadership / Integrity / Transparency', 'Social Equality / Minority Rights', 'Education', 'Seniors / Senior Care', 'Child Care / Family Benefits', 'Immigration', 'National Unity / Canadian Values', 'Other / Miscellaneous']
 
 # Classify using hybrid approach
 results = clf.classify_hybrid(
-    "survey.csv",
-    text_column="response",
+    "data/data-cps21-40.csv",
+    text_column="cps21_imp_iss",
     categories=categories,
     n_llm_samples=500,      # Label 500 samples with LLM
     multiclass=False,       # One category per text
-    context="What is the most important issue?",
-    output_file="classified.csv"
+    context="What is the most important issue in the upcoming Canadian federal election? (answers in English or French)",
+    output_file="data/data-cps21-40-classified.csv",
 )
 
 # Check distribution
@@ -63,13 +63,13 @@ print(results['category'].value_counts())
 ```python
 # Allow multiple categories per text
 results = clf.classify_hybrid(
-    "survey.csv",
-    text_column="response", 
+    "data/data-cps21-40.csv",
+    text_column="cps21_imp_iss",
     categories=categories,
     n_llm_samples=500,
     multiclass=True,        # Multiple categories allowed
-    context="What issues matter to you?",
-    output_file="multi_classified.csv"
+    context="What is the most important issue in the upcoming Canadian federal election? (answers in English or French)",
+    output_file="data/data-cps21-40-classified.csv"
 )
 
 # Check which categories were assigned
@@ -86,12 +86,12 @@ translator = Translator()
 
 # Translate French responses to English
 df = translator.translate_csv(
-    "multilingual_survey.csv",
-    text_column="response",
-    language_column="lang",
-    source_language="fr",
-    target_language="en",
-    output_file="translated.csv"
+    "data/data-cps21-language.csv",
+    text_column="cps21_imp_iss",
+    language_column="Q_Language",
+    filter_value="FR-CA",
+    model_name="Helsinki-NLP/opus-mt-fr-en",  # Helsinki-NLP/opus-mt-fr-en; facebook/nllb-200-distilled-600M
+    output_file="data/translated_helsinki.csv"
 )
 
 # Original column: 'response'
@@ -106,22 +106,47 @@ from translator import Translator
 
 # Step 1: Translate non-English responses
 translator = Translator()
-df = translator.translate_csv("survey.csv", "response", "language", "fr", "en")
-df = translator.translate_csv("survey_fr_translated.csv", "response", "language", "es", "en")
+df = translator.translate_csv(
+    "data/data-cps21-FULL.csv",
+    text_column="cps21_imp_iss",
+    language_column="Q_Language",
+    filter_value="FR-CA",
+    model_name="Helsinki-NLP/opus-mt-fr-en",  # Helsinki-NLP/opus-mt-fr-en; facebook/nllb-200-distilled-600M
+    output_file="data/data-cps21-FULL-translated.csv"
+)
 
-# Step 2: Save translated data
-df.to_csv("survey_translated.csv", index=False)
+# Step 2: Get categories
+
+clf = TextClassifier(backend="ollama", model="deepseek-r1:14b")
+
+# Generate categories from your data
+categories = clf.suggest_categories(
+    "data/data-cps21-FULL-translated.csv",
+    text_column="cps21_imp_iss_tr",
+    n_samples=400,
+    context="The open text survey question is: What is the most important issue in the upcoming Canadian federal election? (answers in English or French)"
+)
+print(categories)
+
+categories = ['Housing affordability', 'COVID-19 response', 'Economy', 'Climate change', 'Healthcare', 'Taxes', 'Indigenous rights', 'Education', 'Immigration', 'Social programs', 'Leadership and governance', 'Corruption and ethics', 'National unity', 'International relations']
 
 # Step 3: Classify all responses
-clf = TextClassifier(backend="openai")
+
+clf = TextClassifier(backend="ollama", model="gemma3n:latest")
+
 results = clf.classify_hybrid(
-    "survey_translated.csv",
-    text_column="response_tr",  # Use translated column
-    categories=['Positive', 'Negative', 'Neutral'],
+    "data/data-cps21-FULL-translated.csv",
+    text_column="cps21_imp_iss_tr",  # Use translated column
+    categories=categories,
     n_llm_samples=500,
-    output_file="final_classified.csv"
+    output_file="output/data-cps21-FULL-translated-classified.csv"
 )
+
 ```
+
+### 6. Latent space clustering
+
+See latent_space_clustering.py for another approach that transforms text into numerical vectors using sentence embeddings, reduces them to 2D space with UMAP to reveal underlying structure, then applies HDBSCAN clustering to find natural groupings of similar responses. The key insight is that dimension reduction before clustering helps find meaningful patterns in survey responses by preserving semantic relationships while making the data geometrically clusterable.
 
 ## Parameters
 
