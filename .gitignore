@@ -1,12 +1,34 @@
+# Python cache and compiled files
 __pycache__/
 *.py[cod]
+*.pyo
+*.pyd
+*.so
 
+# Virtual environments
 .venv/
+venv/
 
-runs/*
-!runs/.gitkeep
+# Output and results
+output/
 
-checkpoints/*
-!checkpoints/.gitkeep
+# Jupyter Notebook checkpoints
+.ipynb_checkpoints/
 
-data/data-z.csv
+# macOS files
+.DS_Store
+
+# VS Code settings (if you use it)
+.vscode/
+
+# Logs and temporary files
+*.log
+*.tmp
+*.bak
+
+# Coverage and test artifacts
+.coverage
+htmlcov/
+.cache/
+pytest_cache/
+
