@@ -21,7 +21,7 @@ export OPENAI_API_KEY="your-key-here"
 from classifier import TextClassifier
 
 # Use OpenAI
-clf = TextClassifier(backend="openai", model="gpt-3.5-turbo")
+clf = TextClassifier(backend="openai", model="gpt-4.1-nano")
 
 # Or use local Ollama
 clf = TextClassifier(backend="ollama", model="llama2")
