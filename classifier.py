@@ -101,7 +101,7 @@ Return ONLY a Python list like: ["Category 1", "Category 2", ...]"""
                 text = df.loc[idx, text_column]
                 labels = self._classify_multi(text, categories, context)
                 labeled_data.append((text, labels))
-                if len(labeled_data) % 100 == 0:
+                if len(labeled_data) % 10 == 0:
                     print(f"  Labeled {len(labeled_data)} samples...")
         else:
             labeled_data = []
@@ -109,7 +109,7 @@ Return ONLY a Python list like: ["Category 1", "Category 2", ...]"""
                 text = df.loc[idx, text_column]
                 label = self._classify_single(text, categories, context)
                 labeled_data.append((text, label))
-                if len(labeled_data) % 100 == 0:
+                if len(labeled_data) % 10 == 0:
                     print(f"  Labeled {len(labeled_data)} samples...")
         
         # Phase 2: Train classifier

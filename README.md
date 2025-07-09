@@ -128,11 +128,25 @@ categories = clf.suggest_categories(
 )
 print(categories)
 
-categories = ['Housing affordability', 'COVID-19 response', 'Economy', 'Climate change', 'Healthcare', 'Taxes', 'Indigenous rights', 'Education', 'Immigration', 'Social programs', 'Leadership and governance', 'Corruption and ethics', 'National unity', 'International relations', "Other, Uncertain, No answer"]
+categories = [
+    'COVID-19 Response/Crisis Management',
+    'Economy/Economic Development', 
+    'Healthcare/Health Care System',
+    'Climate Change & Environment',
+    'Leadership & Governance',
+    'Housing Affordability/Housing Issues',
+    'Taxes & Government Spending/Fiscal Policy',
+    'Education & Immigration Policies',
+    'Indigenous Rights & Reconciliation',
+    'Social Programs/Social Equity',
+    'National Unity', 
+    'International Relations',
+    'Other/Uncertain'
+]
 
 # Step 3: Classify all responses
 
-clf = TextClassifier(backend="ollama", model="gemma3n:latest")
+clf = TextClassifier(backend="ollama", model="cogito:14b")
 
 results = clf.classify_hybrid(
     "data/data-cps21-FULL-translated.csv",
