@@ -7,7 +7,7 @@ import matplotlib.pyplot as plt
 
 # 1. Embed
 embedder = SentenceTransformer('all-MiniLM-L6-v2')
-df = pd.read_csv("data/data-cps21-40.csv")
+df = pd.read_csv("data/data-cps21.csv")
 texts = df['cps21_imp_iss'].fillna('').tolist()
 embeddings = embedder.encode(texts, show_progress_bar=True)
 
@@ -41,6 +41,8 @@ scatter = plt.scatter(
 plt.title('Survey Response Clusters')
 plt.colorbar(scatter)
 plt.show()
+
+plt.savefig('output/umap_clusters.png')
 
 # 5. Describe clusters (most important part!)
 df['cluster'] = clusters

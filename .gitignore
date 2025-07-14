@@ -32,3 +32,5 @@ htmlcov/
 .cache/
 pytest_cache/
 
+tides/
+
