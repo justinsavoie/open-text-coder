@@ -154,6 +154,8 @@ results = clf.classify_hybrid(
 )
 ```
 
+![Frequencies](images/category_frequencies.png)
+
 ## API Reference
 
 ### TextClassifier
